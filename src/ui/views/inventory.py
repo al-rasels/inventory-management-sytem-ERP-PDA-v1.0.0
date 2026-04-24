@@ -1,11 +1,11 @@
 import customtkinter as ctk
 from src.core.config import COLORS, DEFAULT_CURRENCY
+import pandas as pd
 
 class InventoryView(ctk.CTkFrame):
-    def __init__(self, master, db, im):
+    def __init__(self, master, inventory_service):
         super().__init__(master, fg_color="transparent")
-        self.db = db
-        self.im = im
+        self.inventory_service = inventory_service
         
         # Header
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -13,16 +13,11 @@ class InventoryView(ctk.CTkFrame):
         ctk.CTkLabel(header, text="Inventory Ledger", font=ctk.CTkFont(size=26, weight="bold")).pack(side="left")
 
         # Summary cards
-        stock_df = self.im.get_current_stock()
-        total_value = 0
-        total_items = 0
-        out_of_stock = 0
-        for _, r in stock_df.iterrows():
-            s = int(r['current_stock'])
-            total_items += s
-            if s <= 0:
-                out_of_stock += 1
-            total_value += s * (r['cost_price'] or 0)
+        # Summary cards using service
+        stock_df = self.inventory_service.get_stock_status()
+        total_value = stock_df['inventory_value'].sum()
+        total_items = stock_df['current_stock'].sum()
+        out_of_stock = len(stock_df[stock_df['current_stock'] <= 0])
 
         summary = ctk.CTkFrame(self, fg_color="transparent")
         summary.pack(fill="x", pady=(0, 10))
@@ -44,8 +39,8 @@ class InventoryView(ctk.CTkFrame):
         self.stock_filter.set("All")
         self.stock_filter.pack(side="left", padx=5)
 
-        categories = self.db.execute_query("SELECT DISTINCT category FROM products ORDER BY category")
-        cat_list = ["All Categories"] + categories['category'].tolist()
+        categories = self.inventory_service.product_repo.get_categories()
+        cat_list = ["All Categories"] + categories
         self.cat_filter = ctk.CTkComboBox(filter_bar, values=cat_list, width=160, command=self._on_filter)
         self.cat_filter.set("All Categories")
         self.cat_filter.pack(side="left", padx=5)
@@ -75,25 +70,16 @@ class InventoryView(ctk.CTkFrame):
                         text_color=COLORS["text_muted"]).grid(row=0, column=i, padx=12, pady=(10, 5), sticky="w")
         ctk.CTkFrame(self.table, height=1, fg_color=COLORS["border"]).grid(row=1, column=0, columnspan=7, sticky="ew", padx=5)
 
-        query = """
-            SELECT p.product_id, p.name, p.category, p.cost_price, p.reorder_qty,
-                   IFNULL(SUM(pur.qty), 0) as total_in,
-                   IFNULL((SELECT SUM(qty) FROM sales WHERE product_id = p.product_id), 0) as total_out
-            FROM products p
-            LEFT JOIN purchases pur ON p.product_id = pur.product_id
-        """
-        params = []
+        df = self.inventory_service.get_stock_status()
         if cat_filter != "All Categories":
-            query += " WHERE p.category = ?"
-            params.append(cat_filter)
-        query += " GROUP BY p.product_id ORDER BY p.product_id"
-
-        df = self.db.execute_query(query, tuple(params))
+            df = df[df['category'] == cat_filter]
+        
+        df = df.sort_values('product_id')
         
         row_num = 2
         for _, row in df.iterrows():
-            balance = int(row['total_in'] - row['total_out'])
-            reorder = int(row['reorder_qty'] or 50)
+            balance = int(row['current_stock'])
+            reorder = int(row['reorder_qty'] if pd.notna(row['reorder_qty']) else 50)
             
             # Apply stock filter
             if stock_filter == "Low Stock" and balance >= reorder:

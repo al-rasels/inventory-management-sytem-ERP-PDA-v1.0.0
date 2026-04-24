@@ -3,9 +3,9 @@ from src.core.config import COLORS, DEFAULT_CURRENCY
 from datetime import datetime
 
 class TransactionsView(ctk.CTkFrame):
-    def __init__(self, master, db):
+    def __init__(self, master, reporting_service):
         super().__init__(master, fg_color="transparent")
-        self.db = db
+        self.reporting_service = reporting_service
         
         # Header
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -56,20 +56,7 @@ class TransactionsView(ctk.CTkFrame):
         for w in self.sales_frame.winfo_children():
             w.destroy()
 
-        query = """
-            SELECT s.sales_id, s.date, p.name as product_name, s.customer, s.qty, s.revenue 
-            FROM sales s 
-            JOIN products p ON s.product_id = p.product_id
-            WHERE 1=1
-        """
-        params = []
-        if search_term:
-            query += " AND (s.sales_id LIKE ? OR p.name LIKE ? OR s.customer LIKE ?)"
-            term = f"%{search_term}%"
-            params.extend([term, term, term])
-        
-        query += " ORDER BY s.date DESC, s.sales_id DESC LIMIT 100"
-        df = self.db.execute_query(query, tuple(params))
+        df = self.reporting_service.get_sales_history(search_term)
 
         if df.empty:
             ctk.CTkLabel(self.sales_frame, text="No sales records found.", text_color=COLORS["text_muted"]).pack(pady=40)
@@ -98,20 +85,7 @@ class TransactionsView(ctk.CTkFrame):
         for w in self.purchase_frame.winfo_children():
             w.destroy()
 
-        query = """
-            SELECT pur.purchase_id, pur.date, p.name as product_name, pur.supplier, pur.qty, pur.total_cost 
-            FROM purchases pur
-            JOIN products p ON pur.product_id = p.product_id
-            WHERE 1=1
-        """
-        params = []
-        if search_term:
-            query += " AND (pur.purchase_id LIKE ? OR p.name LIKE ? OR pur.supplier LIKE ?)"
-            term = f"%{search_term}%"
-            params.extend([term, term, term])
-        
-        query += " ORDER BY pur.date DESC, pur.purchase_id DESC LIMIT 100"
-        df = self.db.execute_query(query, tuple(params))
+        df = self.reporting_service.get_purchase_history(search_term)
 
         if df.empty:
             ctk.CTkLabel(self.purchase_frame, text="No purchase records found.", text_color=COLORS["text_muted"]).pack(pady=40)

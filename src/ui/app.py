@@ -11,7 +11,22 @@ from src.ui.views.analytics import AnalyticsView
 from src.ui.views.settings import SettingsView
 from src.ui.views.transactions import TransactionsView
 from src.core.database import DatabaseEngine
-from src.core.inventory_manager import InventoryManager
+from src.services.inventory_service import InventoryService
+from src.services.sales_service import SalesService
+from src.services.product_service import ProductService
+from src.services.auth_service import AuthService
+from src.services.purchase_service import PurchaseService
+from src.services.report_service import ReportService
+from src.services.backup_service import BackupService
+from src.services.pdf_service import PDFService
+from src.services.backup_service import BackupService
+from src.repositories.product_repository import ProductRepository
+from src.repositories.sales_repository import SalesRepository
+from src.repositories.purchase_repository import PurchaseRepository
+from src.repositories.user_repository import UserRepository
+from src.repositories.audit_repository import AuditRepository
+from src.repositories.sync_manager import SyncManager
+from src.core.config import INVOICE_DIR
 
 ctk.set_appearance_mode(THEME)
 ctk.set_default_color_theme(COLOR_THEME)
@@ -25,7 +40,26 @@ class ERPApp(ctk.CTk):
         self.minsize(*MIN_WINDOW_SIZE)
         
         self.db = DatabaseEngine()
-        self.im = InventoryManager(self.db)
+        
+        self.audit_repo = AuditRepository(self.db)
+        self.sync_manager = SyncManager(self.db)
+        
+        # Initialize Repositories (with SyncManager injection)
+        self.product_repo = ProductRepository(self.db)
+        self.sales_repo = SalesRepository(self.db, self.sync_manager)
+        self.purchase_repo = PurchaseRepository(self.db, self.sync_manager)
+        self.user_repo = UserRepository(self.db)
+        
+        # Initialize Services
+        self.inventory_service = InventoryService(self.product_repo, self.sales_repo, self.purchase_repo)
+        self.product_service = ProductService(self.product_repo)
+        self.pdf_service = PDFService(invoice_dir=INVOICE_DIR)
+        self.sales_service = SalesService(self.sales_repo, self.inventory_service, self.pdf_service)
+        self.auth_service = AuthService(self.user_repo)
+        self.purchase_service = PurchaseService(self.purchase_repo, self.product_service)
+        self.report_service = ReportService(self.db, self.pdf_service)
+        self.backup_service = BackupService(self.db)
+        
         self.cart = []  # Shared cart across views
         self.active_nav = None
         
@@ -145,49 +179,54 @@ class ERPApp(ctk.CTk):
     def show_dashboard(self):
         self.clear_content()
         self.set_active_nav("Dashboard")
-        self.current_view = DashboardView(self.content_frame, self.db, self.im)
+        self.current_view = DashboardView(self.content_frame, inventory_service=self.inventory_service, reporting_service=self.report_service)
         self.current_view.pack(fill="both", expand=True)
 
     def show_products(self):
         self.clear_content()
         self.set_active_nav("Products")
-        self.current_view = ProductsView(self.content_frame, self.db, self.im, app=self)
+        self.current_view = ProductsView(self.content_frame, product_service=self.product_service, inventory_service=self.inventory_service, app=self)
         self.current_view.pack(fill="both", expand=True)
 
     def show_sales(self):
         self.clear_content()
         self.set_active_nav("Sales")
-        self.current_view = SalesView(self.content_frame, self.db, app=self)
+        self.current_view = SalesView(self.content_frame, self.db, sales_service=self.sales_service, inventory_service=self.inventory_service, app=self)
         self.current_view.pack(fill="both", expand=True)
 
     def show_purchases(self):
         self.clear_content()
         self.set_active_nav("Purchases")
-        self.current_view = PurchaseView(self.content_frame, self.db)
+        self.current_view = PurchaseView(self.content_frame, purchase_service=self.purchase_service, product_service=self.product_service, reporting_service=self.report_service)
         self.current_view.pack(fill="both", expand=True)
 
     def show_inventory(self):
         self.clear_content()
         self.set_active_nav("Inventory")
-        self.current_view = InventoryView(self.content_frame, self.db, self.im)
+        self.current_view = InventoryView(self.content_frame, inventory_service=self.inventory_service)
         self.current_view.pack(fill="both", expand=True)
 
     def show_analytics(self):
         self.clear_content()
         self.set_active_nav("Analytics")
-        self.current_view = AnalyticsView(self.content_frame, self.db, self.im)
+        self.current_view = AnalyticsView(self.content_frame, reporting_service=self.report_service)
         self.current_view.pack(fill="both", expand=True)
 
     def show_settings(self):
         self.clear_content()
         self.set_active_nav("Settings")
-        self.current_view = SettingsView(self.content_frame, self.db, user_data=self.user_data)
+        self.current_view = SettingsView(self.content_frame, self.db, 
+                                        auth_service=self.auth_service, 
+                                        sync_manager=self.sync_manager, 
+                                        report_service=self.report_service,
+                                        backup_service=self.backup_service,
+                                        user_data=self.user_data)
         self.current_view.pack(fill="both", expand=True)
 
     def show_transactions(self):
         self.clear_content()
         self.set_active_nav("Transactions")
-        self.current_view = TransactionsView(self.content_frame, self.db)
+        self.current_view = TransactionsView(self.content_frame, reporting_service=self.report_service)
         self.current_view.pack(fill="both", expand=True)
 
     def logout(self):

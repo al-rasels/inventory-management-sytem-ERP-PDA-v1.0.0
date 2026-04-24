@@ -1,8 +1,13 @@
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import customtkinter as ctk
 from src.core.database import DatabaseEngine
-from src.core.auth import AuthManager
+from src.services.auth_service import AuthService
 from src.ui.app import ERPApp
 from src.core.config import COLORS, THEME, COLOR_THEME, APP_VERSION
+from src.repositories.user_repository import UserRepository
 import threading
 
 class LoginScreen(ctk.CTk):
@@ -12,8 +17,9 @@ class LoginScreen(ctk.CTk):
         self.geometry("450x550")
         self.resizable(False, False)
         
-        self.auth = AuthManager()
         self.db = DatabaseEngine()
+        self.user_repo = UserRepository(self.db)
+        self.auth_service = AuthService(self.user_repo)
 
         # Center the window
         self.update_idletasks()
@@ -77,25 +83,30 @@ class LoginScreen(ctk.CTk):
         self.status_label.configure(text="🔄 Verifying credentials...", text_color=COLORS["text_muted"])
         self.update()
         
-        user = self.auth.login(username, password)
-        if user:
-            self.status_label.configure(text="✅ Login successful! Loading...", text_color=COLORS["success"])
-            self.update()
-            
-            # Sync in a thread-safe way
-            self.status_label.configure(text="🔄 Syncing database from Excel...")
-            self.update()
-            try:
-                self.db.sync_from_excel()
-            except Exception as e:
-                self.status_label.configure(text=f"⚠️ Sync warning: {str(e)[:50]}", text_color=COLORS["warning"])
+        try:
+            result = self.auth_service.login(username, password)
+            if result.success:
+                user = result.user
+                self.status_label.configure(text="✅ Login successful! Loading...", text_color=COLORS["success"])
                 self.update()
+                
+                # Sync in a thread-safe way
+                self.status_label.configure(text="🔄 Syncing database from Excel...")
+                self.update()
+                try:
+                    from src.repositories.sync_manager import SyncManager
+                    SyncManager(self.db).sync_all()
+                except Exception as e:
+                    self.status_label.configure(text=f"⚠️ Sync warning: {str(e)[:50]}", text_color=COLORS["warning"])
+                    self.update()
 
-            self.destroy()
-            app = ERPApp(user)
-            app.mainloop()
-        else:
-            self.status_label.configure(text="❌ Invalid username or password", text_color=COLORS["danger"])
+                self.destroy()
+                app = ERPApp(user)
+                app.mainloop()
+            else:
+                raise Exception("Authentication failed")
+        except Exception as e:
+            self.status_label.configure(text=f"❌ {str(e)}", text_color=COLORS["danger"])
             self.login_button.configure(state="normal", text="Login →")
             self.password_entry.delete(0, 'end')
             self.password_entry.focus_set()

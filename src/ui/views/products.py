@@ -3,10 +3,10 @@ from src.core.config import COLORS, DEFAULT_CURRENCY
 import tkinter.messagebox as messagebox
 
 class ProductsView(ctk.CTkFrame):
-    def __init__(self, master, db, im, app=None):
+    def __init__(self, master, product_service, inventory_service, app=None):
         super().__init__(master, fg_color="transparent")
-        self.db = db
-        self.im = im
+        self.product_service = product_service
+        self.inventory_service = inventory_service
         self.app = app
         self.all_products = None  # Cache for filtering
         
@@ -33,8 +33,8 @@ class ProductsView(ctk.CTkFrame):
         self.search_entry.bind("<KeyRelease>", self._on_search)
 
         # Category filter
-        categories = self.db.execute_query("SELECT DISTINCT category FROM products ORDER BY category")
-        cat_list = ["All Categories"] + categories['category'].tolist()
+        categories = self.product_service.repo.get_categories()
+        cat_list = ["All Categories"] + categories
         self.cat_filter = ctk.CTkComboBox(filter_bar, values=cat_list, width=180, command=self._on_filter)
         self.cat_filter.set("All Categories")
         self.cat_filter.pack(side="right", padx=15)
@@ -56,29 +56,22 @@ class ProductsView(ctk.CTkFrame):
 
     def _load_and_render(self, search_term=None, category=None):
         """Load products and render the table."""
-        query = """
-            SELECT p.product_id, p.sku_code, p.name, p.category, p.unit, p.sell_price, p.cost_price, p.status,
-                   (IFNULL(purch.total_in, 0) - IFNULL(sold.total_out, 0)) as current_stock
-            FROM products p
-            LEFT JOIN (SELECT product_id, SUM(qty) as total_in FROM purchases GROUP BY product_id) purch 
-                ON p.product_id = purch.product_id
-            LEFT JOIN (SELECT product_id, SUM(qty) as total_out FROM sales GROUP BY product_id) sold 
-                ON p.product_id = sold.product_id
-            WHERE 1=1
-        """
-        params = []
+        df = self.inventory_service.get_stock_status()
         
         if search_term:
-            query += " AND (p.sku_code LIKE ? OR p.name LIKE ? OR p.category LIKE ?)"
-            term = f"%{search_term}%"
-            params.extend([term, term, term])
+            term = search_term.lower()
+            mask = (
+                df['sku_code'].str.lower().str.contains(term, na=False) |
+                df['name'].str.lower().str.contains(term, na=False) |
+                df['category'].str.lower().str.contains(term, na=False)
+            )
+            df = df[mask]
         
         if category and category != "All Categories":
-            query += " AND p.category = ?"
-            params.append(category)
+            df = df[df['category'] == category]
 
-        query += " ORDER BY p.product_id"
-        df = self.db.execute_query(query, tuple(params))
+        df = df.sort_values(by='product_id')
+        
         self.count_label.configure(text=f"Showing {len(df)} products")
         self._render_table(df)
 
@@ -162,33 +155,32 @@ class ProductsView(ctk.CTkFrame):
 
     def _add_to_cart(self, prod):
         """Add product to the global cart without switching views. Respects stock and prevents duplicates."""
-        if not self.app:
+        if not self.app or not hasattr(self.app, 'inventory_service'):
             return
 
         # Check if already in cart
         existing_item = next((item for item in self.app.cart if item['product_id'] == prod['product_id']), None)
         target_qty = (existing_item['qty'] + 1) if existing_item else 1
 
-        # Check stock
-        available, current = self.im.check_stock_available(prod['product_id'], target_qty)
-        if not available:
-            messagebox.showwarning("Out of Stock", f"Cannot add more! Only {int(current)} units available.")
-            return
+        try:
+            # Check stock using service
+            self.app.inventory_service.validate_sufficient_stock(prod['product_id'], target_qty)
 
-        if existing_item:
-            existing_item['qty'] = target_qty
-            existing_item['total'] = existing_item['qty'] * existing_item['price']
-            messagebox.showinfo("Cart Updated", f"Increased {prod['name']} quantity to {target_qty}.")
-        else:
-            self.app.cart.append({
-                "product_id": prod['product_id'],
-                "name": prod['name'],
-                "qty": 1,
-                "price": prod['sell_price'],
-                "total": prod['sell_price']
-            })
-            messagebox.showinfo("Added to Cart", f"Added {prod['name']} to cart.")
-
+            if existing_item:
+                existing_item['qty'] = target_qty
+                existing_item['total'] = existing_item['qty'] * existing_item['price']
+                messagebox.showinfo("Cart Updated", f"Increased {prod['name']} quantity to {target_qty}.")
+            else:
+                self.app.cart.append({
+                    "product_id": prod['product_id'],
+                    "name": prod['name'],
+                    "qty": 1,
+                    "price": prod['sell_price'],
+                    "total": prod['sell_price']
+                })
+                messagebox.showinfo("Added to Cart", f"Added {prod['name']} to cart.")
+        except Exception as e:
+            messagebox.showwarning("Out of Stock", str(e))
 
     def _add_product(self):
         """Basic add product dialog."""
@@ -215,31 +207,22 @@ class ProductsView(ctk.CTkFrame):
 
         def save():
             try:
-                sku = entries["SKU Code"].get().strip()
-                name = entries["Product Name"].get().strip()
+                data = {
+                    "sku_code": entries["SKU Code"].get().strip(),
+                    "name": entries["Product Name"].get().strip(),
+                    "category": entries["Category"].get().strip(),
+                    "unit": entries["Unit"].get().strip(),
+                    "sell_price": float(entries["Sell Price"].get() or 0),
+                    "cost_price": float(entries["Cost Price"].get() or 0),
+                    "status": "Active"
+                }
                 
-                if not sku or not name: raise ValueError("SKU and Name are required")
-                
-                # Check if SKU exists
-                exists = self.db.execute_query("SELECT 1 FROM products WHERE sku_code = ?", (sku,))
-                if not exists.empty:
-                    messagebox.showerror("Error", "SKU Code already exists!")
-                    return
-
-                # Generate Product ID
-                res = self.db.execute_query("SELECT COUNT(*) as count FROM products")
-                new_id = f"PROD-{res.iloc[0]['count'] + 1001}"
-
-                self.db.execute_write(
-                    "INSERT INTO products (product_id, sku_code, name, category, unit, sell_price, cost_price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (new_id, sku, name, entries["Category"].get(), entries["Unit"].get(), 
-                     float(entries["Sell Price"].get()), float(entries["Cost Price"].get()), "Active")
-                )
-                messagebox.showinfo("Success", f"Product {name} added successfully!")
+                self.product_service.create_product(data)
+                messagebox.showinfo("Success", f"Product {data['name']} added successfully!")
                 dialog.destroy()
                 self._load_and_render()
             except Exception as e:
-                messagebox.showerror("Error", f"Invalid input: {str(e)}")
+                messagebox.showerror("Error", str(e))
 
         ctk.CTkButton(content, text="Save Product", command=save, fg_color=COLORS["success"]).pack(pady=20)
 
@@ -320,32 +303,20 @@ class ProductsView(ctk.CTkFrame):
 
         def save():
             try:
-                sku = entries["sku_code"].get().strip()
-                name = entries["name"].get().strip()
+                data = {
+                    "sku_code": entries["sku_code"].get().strip(),
+                    "name": entries["name"].get().strip(),
+                    "category": entries["category"].get().strip(),
+                    "unit": entries["unit"].get().strip(),
+                    "sell_price": float(entries["sell_price"].get() or 0),
+                    "cost_price": float(entries["cost_price"].get() or 0)
+                }
                 
-                if not sku or not name: raise ValueError("SKU and Name are required")
-                
-                # Check if SKU exists (but not for this product)
-                exists = self.db.execute_query(
-                    "SELECT 1 FROM products WHERE sku_code = ? AND product_id != ?", 
-                    (sku, prod['product_id'])
-                )
-                if not exists.empty:
-                    messagebox.showerror("Error", "SKU Code already exists for another product!")
-                    return
-
-                self.db.execute_write(
-                    """UPDATE products 
-                       SET sku_code = ?, name = ?, category = ?, unit = ?, sell_price = ?, cost_price = ? 
-                       WHERE product_id = ?""",
-                    (sku, name, entries["category"].get(), entries["unit"].get(), 
-                     float(entries["sell_price"].get()), float(entries["cost_price"].get()), 
-                     prod['product_id'])
-                )
-                messagebox.showinfo("Success", f"Product {name} updated successfully!")
+                self.product_service.update_product(prod['product_id'], data)
+                messagebox.showinfo("Success", f"Product {data['name']} updated successfully!")
                 dialog.destroy()
                 self._load_and_render()
             except Exception as e:
-                messagebox.showerror("Error", f"Invalid input: {str(e)}")
+                messagebox.showerror("Error", str(e))
 
         ctk.CTkButton(content, text="Save Changes", command=save, fg_color=COLORS["success"]).pack(pady=20)

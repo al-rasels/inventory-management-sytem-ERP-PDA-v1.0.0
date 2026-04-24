@@ -6,10 +6,10 @@ matplotlib.use('Agg')
 from src.core.config import COLORS, DEFAULT_CURRENCY
 
 class DashboardView(ctk.CTkFrame):
-    def __init__(self, master, db, im):
+    def __init__(self, master, inventory_service, reporting_service):
         super().__init__(master, fg_color="transparent")
-        self.db = db
-        self.im = im
+        self.inventory_service = inventory_service
+        self.reporting_service = reporting_service
         
         # Title bar
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -24,16 +24,14 @@ class DashboardView(ctk.CTkFrame):
         kpi_frame.columnconfigure((0, 1, 2, 3), weight=1)
 
         # Fetch real KPI data
-        rev_df = self.db.execute_query("SELECT IFNULL(SUM(revenue), 0) as val FROM sales")
-        total_revenue = rev_df.iloc[0]['val']
+        summary = self.reporting_service.get_sales_summary(days=None)
+        total_revenue = summary.get('revenue', 0)
+        total_profit = summary.get('profit', 0)
 
-        prof_df = self.db.execute_query("SELECT IFNULL(SUM(profit), 0) as val FROM sales")
-        total_profit = prof_df.iloc[0]['val']
-
-        stock_df = self.im.get_current_stock()
+        stock_df = self.inventory_service.get_stock_status()
         total_products = len(stock_df)
 
-        low_stock = self.im.get_low_stock_items()
+        low_stock = self.reporting_service.get_reorder_alerts()
         low_count = len(low_stock)
 
         self._kpi_card(kpi_frame, "Total Revenue", f"{DEFAULT_CURRENCY} {total_revenue:,.0f}", COLORS["accent"], "📈", 0)
@@ -80,16 +78,7 @@ class DashboardView(ctk.CTkFrame):
         ctk.CTkLabel(recent_card, text="🧾 Recent Activity", font=ctk.CTkFont(size=14, weight="bold"),
                      text_color=COLORS["accent"]).pack(pady=(15, 10), padx=20, anchor="w")
         
-        # Combined query for sales and purchases
-        combined_query = """
-            SELECT 'SALE' as type, s.date, p.name, s.revenue as amt
-            FROM sales s JOIN products p ON s.product_id = p.product_id
-            UNION ALL
-            SELECT 'PURCHASE' as type, pur.date, p.name, pur.total_cost as amt
-            FROM purchases pur JOIN products p ON pur.product_id = p.product_id
-            ORDER BY date DESC LIMIT 8
-        """
-        recent_df = self.db.execute_query(combined_query)
+        recent_df = self.reporting_service.get_recent_activity(limit=8)
         
         if recent_df.empty:
             ctk.CTkLabel(recent_card, text="No transactions recorded today", text_color=COLORS["text_muted"],
@@ -118,10 +107,7 @@ class DashboardView(ctk.CTkFrame):
                      text_color=COLORS["text"]).pack(pady=(15, 0), padx=20, anchor="w")
 
         # Try to get real grouped data
-        df = self.db.execute_query("""
-            SELECT date, SUM(revenue) as daily_rev 
-            FROM sales GROUP BY date ORDER BY date DESC LIMIT 7
-        """)
+        df = self.reporting_service.get_daily_sales_trend(days=7)
         
         if df.empty or len(df) < 2:
             ctk.CTkLabel(parent, text="Insufficient data for trend analysis.\nContinue logging sales to unlock visualizations.",

@@ -1,6 +1,7 @@
 import os
 import shutil
 import logging
+import functools
 from datetime import datetime
 from src.core.config import EXCEL_DB_PATH, BACKUP_DIR, LOG_DIR
 
@@ -36,6 +37,8 @@ class SafetyManager:
     @staticmethod
     def rollback(backup_path):
         """Restores the Excel database from a backup."""
+        if not backup_path or not os.path.exists(backup_path):
+            return False
         try:
             shutil.copy2(backup_path, EXCEL_DB_PATH)
             logging.warning(f"Rollback performed using {backup_path}")
@@ -43,6 +46,22 @@ class SafetyManager:
         except Exception as e:
             logging.error(f"Rollback failed: {str(e)}")
             return False
+
+    @staticmethod
+    def transactional(func):
+        """Decorator to ensure atomicity via backup/rollback."""
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            backup_path = SafetyManager.create_backup()
+            try:
+                result = func(*args, **kwargs)
+                return result
+            except Exception as e:
+                logging.error(f"Transaction failed in {func.__name__}: {str(e)}")
+                if backup_path:
+                    SafetyManager.rollback(backup_path)
+                raise e
+        return wrapper
 
 class CloudBackup:
     """Interface for Cloud Backups (Google Drive/S3)."""

@@ -1,17 +1,17 @@
 import customtkinter as ctk
 from src.core.config import COLORS, DEFAULT_CURRENCY, INVOICE_DIR
-from src.core.inventory_manager import InventoryManager
-from src.utils.pdf_gen import InvoiceGenerator
+from src.core.exceptions import SunERPException, InsufficientStockError, ValidationError
+from src.services.types import CartItem
 from datetime import datetime
 import tkinter.messagebox as messagebox
 
 class SalesView(ctk.CTkFrame):
-    def __init__(self, master, db, app=None):
+    def __init__(self, master, db, sales_service, inventory_service, app=None):
         super().__init__(master, fg_color="transparent")
         self.db = db
         self.app = app
-        self.im = InventoryManager(db)
-        self.pdf = InvoiceGenerator(output_dir=INVOICE_DIR)
+        self.sales_service = sales_service
+        self.inventory_service = inventory_service
         
         # Use app's cart if available
         if app and hasattr(app, 'cart'):
@@ -132,14 +132,8 @@ class SalesView(ctk.CTkFrame):
         if not search_val:
             return
         
-        # More flexible search: Case-insensitive partial match for SKU, ID, or Name
-        query = """
-            SELECT * FROM products 
-            WHERE LOWER(sku_code) = LOWER(?) 
-               OR LOWER(product_id) = LOWER(?) 
-               OR name LIKE ?
-        """
-        df = self.db.execute_query(query, (search_val, search_val, f"%{search_val}%"))
+        # Search for product
+        df = self.inventory_service.product_repo.search(search_val)
         
         if df.empty:
             messagebox.showwarning("Not Found", f"No product matches '{search_val}'")
@@ -152,26 +146,28 @@ class SalesView(ctk.CTkFrame):
         existing_item = next((item for item in self.cart if item['product_id'] == prod['product_id']), None)
         target_qty = (existing_item['qty'] + 1) if existing_item else 1
 
-        # Check stock
-        available, current = self.im.check_stock_available(prod['product_id'], target_qty)
-        if not available:
-            messagebox.showwarning("Out of Stock", f"Cannot add more! Only {int(current)} units available.")
-            return
-
-        if existing_item:
-            existing_item['qty'] = target_qty
-            existing_item['total'] = existing_item['qty'] * existing_item['price']
-        else:
-            self.cart.append({
-                "product_id": prod['product_id'],
-                "name": prod['name'],
-                "qty": 1,
-                "price": prod['sell_price'],
-                "total": prod['sell_price']
-            })
-        
-        self.render_cart()
-        self.update_summary()
+        try:
+            # Validate stock using service
+            self.inventory_service.validate_sufficient_stock(prod['product_id'], target_qty)
+            
+            if existing_item:
+                existing_item['qty'] = target_qty
+                existing_item['total'] = existing_item['qty'] * existing_item['price']
+            else:
+                self.cart.append({
+                    "product_id": prod['product_id'],
+                    "name": prod['name'],
+                    "qty": 1,
+                    "price": prod['sell_price'],
+                    "total": prod['sell_price']
+                })
+            
+            self.render_cart()
+            self.update_summary()
+        except InsufficientStockError as e:
+            messagebox.showwarning("Out of Stock", f"Cannot add more! Only {e.available} units available.")
+        except SunERPException as e:
+            messagebox.showerror("Error", str(e))
 
 
     def render_cart(self):
@@ -231,15 +227,14 @@ class SalesView(ctk.CTkFrame):
                 new_qty = int(val) if val.isdigit() else item['qty']
                 if new_qty <= 0: return
                 
-                # Stock validation
-                available, current = self.im.check_stock_available(item['product_id'], new_qty)
-                if not available:
-                    # Visual feedback: reset entry to last known good value or show warning
+                try:
+                    # Stock validation using service
+                    self.inventory_service.validate_sufficient_stock(item['product_id'], new_qty)
+                    entry.configure(text_color=COLORS["text"])
+                    item['qty'] = new_qty
+                except InsufficientStockError:
                     entry.configure(text_color=COLORS["danger"])
                     return
-                else:
-                    entry.configure(text_color=COLORS["text"])
-                item['qty'] = new_qty
             else:
                 item['price'] = float(val) if val.replace('.','',1).isdigit() else item['price']
 
@@ -279,11 +274,14 @@ class SalesView(ctk.CTkFrame):
         self.discount_amt_lbl.configure(text=f"- {DEFAULT_CURRENCY} {discount_amt:,.0f}")
         self.grand_total_lbl.configure(text=f"{DEFAULT_CURRENCY} {grand_total:,.0f}")
 
-        # Estimate profit
+        # Estimate profit using service
         est_profit = 0
         for item in self.cart:
-            cogs, _ = self.im.calculate_fifo_cogs(item['product_id'], item['qty'])
-            est_profit += item['total'] - (cogs or 0)
+            try:
+                cogs = self.inventory_service.calculate_item_cost(item['product_id'], item['qty'])
+                est_profit += item['total'] - (cogs or 0)
+            except:
+                pass
         est_profit -= discount_amt
         self.profit_lbl.configure(text=f"{DEFAULT_CURRENCY} {est_profit:,.0f}")
 
@@ -292,50 +290,37 @@ class SalesView(ctk.CTkFrame):
             messagebox.showinfo("Empty Cart", "Add items to the cart first!")
             return
         
-        date_str = datetime.now().strftime("%Y-%m-%d")
         customer = self.customer_entry.get().strip() or "Walk-in Customer"
-        
         try:
             disc_pct = float(self.discount_entry.get() or 0)
         except ValueError:
             disc_pct = 0
         
         try:
-            for item in self.cart:
-                sales_id = self.db.get_next_sale_id()
-                total_cogs, _ = self.im.calculate_fifo_cogs(item['product_id'], item['qty'])
-                
-                if total_cogs is None:
-                    messagebox.showerror("Error", f"Cannot calculate cost for {item['name']}!")
-                    return
-                
-                item_discount = item['total'] * (disc_pct / 100)
-                revenue = item['total'] - item_discount
-
-                self.db.write_sale({
-                    "sales_id": sales_id,
-                    "date": date_str,
-                    "product_id": item['product_id'],
-                    "customer": customer,
-                    "qty": item['qty'],
-                    "sell_price": item['price'],
-                    "discount": item_discount,
-                    "revenue": revenue,
-                    "cogs": total_cogs,
-                    "profit": revenue - total_cogs
-                })
+            # Convert dict cart items to CartItem objects
+            cart_items = [
+                CartItem(
+                    product_id=item['product_id'],
+                    name=item['name'],
+                    qty=item['qty'],
+                    price=item['price'],
+                    total=item['total']
+                ) for item in self.cart
+            ]
             
-            # Calculate totals for the message
-            subtotal = sum(item['total'] for item in self.cart)
-            discount_amt = subtotal * (disc_pct / 100)
-            grand_total = subtotal - discount_amt
+            # Use service to complete sale
+            result = self.sales_service.complete_sale(cart_items, customer, disc_pct)
             
             messagebox.showinfo("✅ Sale Complete!", 
-                f"Sale recorded successfully!\nCustomer: {customer}\nTotal: {DEFAULT_CURRENCY} {grand_total:,.0f}")
+                f"Sale recorded successfully!\nCustomer: {customer}\nTotal: {DEFAULT_CURRENCY} {result.revenue:,.0f}")
             
             self.clear_cart()
             self.customer_entry.delete(0, 'end')
             self.discount_entry.delete(0, 'end')
             
+        except InsufficientStockError as e:
+            messagebox.showwarning("Out of Stock", f"Insufficient stock for {e.product_id}!")
+        except SunERPException as e:
+            messagebox.showerror("Error", str(e))
         except Exception as e:
             messagebox.showerror("Critical Error", str(e))

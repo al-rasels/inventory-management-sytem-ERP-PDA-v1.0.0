@@ -76,3 +76,52 @@ class InvoiceGenerator:
         except Exception as e:
             print(f"Error generating PDF: {e}")
             return None
+
+class ReportGenerator:
+    def __init__(self, output_dir="reports"):
+        self.output_dir = output_dir
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+    def generate(self, title, headers, data, filename_prefix="Report"):
+        """Generates a generic tabular report PDF."""
+        timestamp = os.path.basename(filename_prefix)
+        filename = f"{filename_prefix}_{timestamp}.pdf"
+        filepath = os.path.join(self.output_dir, filename)
+        
+        try:
+            doc = SimpleDocTemplate(filepath, pagesize=A4)
+            elements = []
+            styles = getSampleStyleSheet()
+
+            # Header
+            elements.append(Paragraph(f"<b>{title}</b>", styles['Title']))
+            elements.append(Paragraph(f"Generated on: {os.path.basename(filename_prefix)}", styles['Normal']))
+            elements.append(Spacer(1, 12))
+
+            # Table Data
+            table_data = [headers] + data
+            
+            # Dynamic colWidths calculation (very basic)
+            col_widths = [100] * len(headers)
+            if len(headers) > 0:
+                available_width = 450
+                col_widths = [available_width / len(headers)] * len(headers)
+
+            table = Table(table_data, colWidths=col_widths)
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1E293B")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ]))
+            
+            elements.append(table)
+            doc.build(elements)
+            return filepath
+        except Exception as e:
+            print(f"Error generating Report PDF: {e}")
+            return None

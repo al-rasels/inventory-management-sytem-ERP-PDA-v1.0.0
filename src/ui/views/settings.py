@@ -1,6 +1,5 @@
 import customtkinter as ctk
 from src.core.config import COLORS, BACKUP_DIR, MAX_BACKUP_FILES
-from src.core.auth import AuthManager
 from src.utils.export_import import DataExporter, DataImporter
 import tkinter.messagebox as messagebox
 import tkinter.filedialog as filedialog
@@ -8,10 +7,14 @@ import os
 import glob
 
 class SettingsView(ctk.CTkFrame):
-    def __init__(self, master, db, user_data=None):
+    def __init__(self, master, db, auth_service, sync_manager=None, 
+                 report_service=None, backup_service=None, user_data=None):
         super().__init__(master, fg_color="transparent")
         self.db = db
-        self.auth = AuthManager()
+        self.auth_service = auth_service
+        self.sync_manager = sync_manager
+        self.report_service = report_service
+        self.backup_service = backup_service
         self.user_data = user_data or {"username": "admin"}
         
         # Header
@@ -87,12 +90,13 @@ class SettingsView(ctk.CTkFrame):
         ctk.CTkLabel(scroll, text="Backup Management", font=ctk.CTkFont(size=16, weight="bold")).pack(
             pady=5, padx=15, anchor="w")
 
-        backup_count = len(glob.glob(os.path.join(BACKUP_DIR, "*.xlsx")))
-        backup_size = sum(os.path.getsize(f) for f in glob.glob(os.path.join(BACKUP_DIR, "*.xlsx")))
+        backup_count, backup_size_mb = 0, 0
+        if self.backup_service:
+            backup_count, backup_size_mb = self.backup_service.get_backup_stats()
 
         info = ctk.CTkFrame(scroll, fg_color=COLORS["card_hover"], corner_radius=8)
         info.pack(fill="x", padx=15, pady=5)
-        ctk.CTkLabel(info, text=f"📁 {backup_count} backups  •  {backup_size / (1024*1024):.1f} MB total",
+        ctk.CTkLabel(info, text=f"📁 {backup_count} backups  •  {backup_size_mb:.1f} MB total",
                     font=ctk.CTkFont(size=12), text_color=COLORS["text_secondary"]).pack(padx=15, pady=10, side="left")
         ctk.CTkButton(info, text="🧹 Cleanup Old", width=120, height=30,
                      fg_color=COLORS["warning"], hover_color=COLORS["warning_hover"],
@@ -299,24 +303,24 @@ class SettingsView(ctk.CTkFrame):
             messagebox.showwarning("Too Short", "Password must be at least 4 characters!")
             return
 
-        success, msg = self.auth.change_password(self.user_data["username"], old, new)
-        if success:
-            messagebox.showinfo("✅ Success", msg)
+        try:
+            self.auth_service.change_password(self.user_data["username"], old, new)
+            messagebox.showinfo("✅ Success", "Password changed successfully")
             self.old_pw.delete(0, 'end')
             self.new_pw.delete(0, 'end')
             self.confirm_pw.delete(0, 'end')
-        else:
-            messagebox.showerror("Failed", msg)
+        except Exception as e:
+            messagebox.showerror("Failed", str(e))
 
     def _cleanup_backups(self):
-        files = sorted(glob.glob(os.path.join(BACKUP_DIR, "*.xlsx")))
-        if len(files) <= 5:
-            messagebox.showinfo("Info", "Only 5 or fewer backups exist. Nothing to clean.")
-            return
-        to_delete = files[:-5]
-        for f in to_delete:
-            os.remove(f)
-        messagebox.showinfo("Cleanup Done", f"Removed {len(to_delete)} old backups. Kept the 5 most recent.")
+        if self.backup_service:
+            deleted = self.backup_service.cleanup_old_backups(keep=5)
+            if deleted > 0:
+                messagebox.showinfo("Cleanup Done", f"Removed {deleted} old backups. Kept the 5 most recent.")
+            else:
+                messagebox.showinfo("Info", "Backups are already within limits.")
+        else:
+            messagebox.showerror("Error", "BackupService not initialized")
 
     def _create_user(self):
         username = self.new_user.get().strip()
@@ -328,21 +332,21 @@ class SettingsView(ctk.CTkFrame):
             messagebox.showwarning("Incomplete", "All fields are required!")
             return
 
-        success = self.auth.create_user(username, password, role, full_name)
-        if success:
+        try:
+            self.auth_service.create_user(username, full_name, password, role)
             messagebox.showinfo("✅ User Created", f"User '{username}' created as {role}")
             self.new_user.delete(0, 'end')
             self.new_name.delete(0, 'end')
             self.new_pass.delete(0, 'end')
             self._refresh_users()
-        else:
-            messagebox.showerror("Error", f"Username '{username}' already exists!")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
     def _refresh_users(self):
         for w in self.user_list.winfo_children():
             w.destroy()
         
-        df = self.db.execute_query("SELECT username, full_name, role FROM users")
+        df = self.auth_service.list_users()
         for _, row in df.iterrows():
             card = ctk.CTkFrame(self.user_list, fg_color=COLORS["card_hover"], corner_radius=6)
             card.pack(fill="x", pady=2)
@@ -361,26 +365,32 @@ class SettingsView(ctk.CTkFrame):
 
     def _delete_user(self, username):
         if messagebox.askyesno("Confirm", f"Delete user '{username}'?"):
-            success, msg = self.auth.delete_user(username)
-            if success:
-                messagebox.showinfo("Deleted", msg)
+            try:
+                self.auth_service.delete_user(username)
+                messagebox.showinfo("Deleted", f"User '{username}' deleted")
                 self._refresh_users()
-            else:
-                messagebox.showerror("Error", msg)
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
 
     def _resync(self):
         try:
-            self.db.sync_from_excel()
-            messagebox.showinfo("✅ Sync Complete", "SQLite cache has been rebuilt from the Excel file.")
+            if self.sync_manager:
+                self.sync_manager.sync_all_from_excel()
+                messagebox.showinfo("✅ Sync Complete", "SQLite cache has been rebuilt from the Excel file.")
+            else:
+                raise Exception("SyncManager not initialized")
         except Exception as e:
             messagebox.showerror("Sync Failed", str(e))
 
     def _sync_to_excel(self):
-        success, msg = self.db.sync_to_excel()
-        if success:
-            messagebox.showinfo("✅ Sync Success", msg)
+        if self.sync_manager:
+            success, msg = self.sync_manager.full_sync_to_excel()
+            if success:
+                messagebox.showinfo("✅ Sync Success", msg)
+            else:
+                messagebox.showerror("Sync Error", msg)
         else:
-            messagebox.showerror("Sync Error", msg)
+            messagebox.showerror("Error", "SyncManager not initialized")
 
     def _reset_cache(self):
         if messagebox.askyesno("Confirm Reset", "This will delete the SQLite cache and rebuild it from Excel.\nContinue?"):
@@ -388,28 +398,38 @@ class SettingsView(ctk.CTkFrame):
             if os.path.exists(SQLITE_DB_PATH):
                 os.remove(SQLITE_DB_PATH)
             self.db._init_sqlite()
-            self.db.sync_from_excel()
+            if self.sync_manager:
+                self.sync_manager.sync_all_from_excel()
             messagebox.showinfo("✅ Reset Complete", "Cache has been rebuilt.")
 
     # --- Export/Import handlers ---
     def _export_migration(self):
         try:
-            path = DataExporter.export_full_system()
-            messagebox.showinfo("✅ Export Complete", f"Migration archive created:\n{path}")
+            if self.backup_service:
+                path = self.backup_service.export_migration_zip()
+                messagebox.showinfo("✅ Export Complete", f"Migration archive created:\n{path}")
+            else:
+                raise Exception("BackupService not initialized")
         except Exception as e:
             messagebox.showerror("Export Failed", str(e))
 
     def _export_excel(self):
         try:
-            path = DataExporter.export_excel_report(self.db)
-            messagebox.showinfo("✅ Report Generated", f"Excel report saved:\n{path}")
+            if self.report_service:
+                path = self.report_service.export_excel()
+                messagebox.showinfo("✅ Report Generated", f"Excel report saved:\n{path}")
+            else:
+                raise Exception("ReportService not initialized")
         except Exception as e:
             messagebox.showerror("Export Failed", str(e))
 
     def _export_csv(self, table):
         try:
-            path = DataExporter.export_csv(self.db, table)
-            messagebox.showinfo("✅ CSV Exported", f"{table.capitalize()} exported to:\n{path}")
+            if self.report_service:
+                path = self.report_service.export_csv(table)
+                messagebox.showinfo("✅ CSV Exported", f"{table.capitalize()} exported to:\n{path}")
+            else:
+                raise Exception("ReportService not initialized")
         except Exception as e:
             messagebox.showerror("Export Failed", str(e))
 
@@ -423,11 +443,14 @@ class SettingsView(ctk.CTkFrame):
         if messagebox.askyesno("⚠️ Confirm Import", 
             "This will replace your current data with the contents of the archive.\n"
             "A backup of your current data will be created first.\n\nContinue?"):
-            success, msg = DataImporter.import_full_system(path, self.db)
-            if success:
-                messagebox.showinfo("✅ Import Complete", msg)
+            if self.backup_service:
+                success, msg = self.backup_service.import_migration_zip(path)
+                if success:
+                    messagebox.showinfo("✅ Import Complete", msg)
+                else:
+                    messagebox.showerror("Import Failed", msg)
             else:
-                messagebox.showerror("Import Failed", msg)
+                messagebox.showerror("Error", "BackupService not initialized")
 
     def _import_csv(self, table):
         path = filedialog.askopenfilename(

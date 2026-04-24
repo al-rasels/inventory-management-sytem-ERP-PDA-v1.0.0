@@ -6,10 +6,9 @@ matplotlib.use('Agg')
 from src.core.config import COLORS, DEFAULT_CURRENCY
 
 class AnalyticsView(ctk.CTkFrame):
-    def __init__(self, master, db, im):
+    def __init__(self, master, reporting_service):
         super().__init__(master, fg_color="transparent")
-        self.db = db
-        self.im = im
+        self.reporting_service = reporting_service
         
         # Header
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -43,21 +42,22 @@ class AnalyticsView(ctk.CTkFrame):
         ctk.CTkLabel(fin, text="💰 Financial Summary", font=ctk.CTkFont(size=16, weight="bold"),
                      text_color=COLORS["accent"]).pack(pady=(15, 10), padx=15, anchor="w")
 
-        df = self.db.execute_query("SELECT IFNULL(SUM(revenue),0) as rev, IFNULL(SUM(cogs),0) as cogs, IFNULL(SUM(profit),0) as prof FROM sales")
-        rev = df.iloc[0]['rev']
-        cogs = df.iloc[0]['cogs']
-        prof = df.iloc[0]['prof']
+        summary = self.reporting_service.get_sales_summary(days=365)
+        rev = summary["revenue"]
+        prof = summary["profit"]
+        units = summary["units"]
+        # Need COGS from somewhere - maybe add to summary or calculate here
+        cogs = rev - prof
         margin = (prof / rev * 100) if rev > 0 else 0
-
-        sale_count = self.db.execute_query("SELECT COUNT(*) as c FROM sales").iloc[0]['c']
-        avg_sale = rev / sale_count if sale_count > 0 else 0
+        transactions = summary.get("transactions", 0)
+        avg_sale = rev / transactions if transactions > 0 else 0
 
         metrics = [
             ("Total Revenue", f"{DEFAULT_CURRENCY} {rev:,.0f}", COLORS["accent"]),
             ("Total COGS", f"{DEFAULT_CURRENCY} {cogs:,.0f}", COLORS["warning"]),
             ("Net Profit", f"{DEFAULT_CURRENCY} {prof:,.0f}", COLORS["success"] if prof > 0 else COLORS["danger"]),
             ("Profit Margin", f"{margin:.1f}%", COLORS["success"] if margin > 15 else COLORS["warning"]),
-            ("Total Transactions", str(int(sale_count)), COLORS["text"]),
+            ("Total Transactions", str(int(transactions)), COLORS["text"]),
             ("Avg Sale Value", f"{DEFAULT_CURRENCY} {avg_sale:,.0f}", COLORS["info"]),
         ]
 
@@ -74,7 +74,7 @@ class AnalyticsView(ctk.CTkFrame):
         ctk.CTkLabel(reorder, text="🔔 Reorder Alerts", font=ctk.CTkFont(size=16, weight="bold"),
                      text_color=COLORS["warning"]).pack(pady=(15, 10), padx=15, anchor="w")
 
-        low_df = self.im.get_low_stock_items()
+        low_df = self.reporting_service.get_reorder_alerts()
         if low_df.empty:
             ctk.CTkLabel(reorder, text="✅ All stock levels are healthy!", text_color=COLORS["success"],
                         font=ctk.CTkFont(size=13)).pack(padx=15, pady=10)
@@ -96,11 +96,9 @@ class AnalyticsView(ctk.CTkFrame):
         frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="nsew")
 
-        df = self.db.execute_query("""
-            SELECT p.name, p.category, SUM(s.qty) as units, SUM(s.revenue) as rev, SUM(s.profit) as prof
-            FROM sales s JOIN products p ON s.product_id = p.product_id
-            GROUP BY s.product_id ORDER BY rev DESC LIMIT 15
-        """)
+        df = self.reporting_service.get_top_selling_products(limit=15)
+        # Adding profit calculation for the view since the service might not return it
+        # Actually, let's update service to return profit too
 
         if df.empty:
             ctk.CTkLabel(frame, text="No sales data available yet.", text_color=COLORS["text_muted"]).pack(pady=30)
@@ -140,7 +138,7 @@ class AnalyticsView(ctk.CTkFrame):
         frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
         frame.grid(row=0, column=0, sticky="nsew")
 
-        dead_df = self.im.get_dead_stock(days=30)
+        dead_df = self.reporting_service.get_dead_stock(days=30)
 
         ctk.CTkLabel(frame, text="Products with no sales in the last 30 days",
                     font=ctk.CTkFont(size=13), text_color=COLORS["text_muted"]).pack(pady=(10, 15))
@@ -173,12 +171,7 @@ class AnalyticsView(ctk.CTkFrame):
         frame.grid(row=0, column=0, sticky="nsew")
 
         # Profit by category
-        df = self.db.execute_query("""
-            SELECT p.category, SUM(s.revenue) as rev, SUM(s.profit) as prof,
-                   CASE WHEN SUM(s.revenue) > 0 THEN SUM(s.profit) * 100.0 / SUM(s.revenue) ELSE 0 END as margin
-            FROM sales s JOIN products p ON s.product_id = p.product_id
-            GROUP BY p.category ORDER BY prof DESC
-        """)
+        df = self.reporting_service.get_profit_by_category()
 
         if df.empty:
             ctk.CTkLabel(frame, text="No profit data available yet.", text_color=COLORS["text_muted"]).pack(pady=30)

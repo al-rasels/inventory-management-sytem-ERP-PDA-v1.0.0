@@ -4,9 +4,11 @@ from datetime import datetime
 import tkinter.messagebox as messagebox
 
 class PurchaseView(ctk.CTkFrame):
-    def __init__(self, master, db):
+    def __init__(self, master, purchase_service, product_service, reporting_service):
         super().__init__(master, fg_color="transparent")
-        self.db = db
+        self.purchase_service = purchase_service
+        self.product_service = product_service
+        self.reporting_service = reporting_service
         
         # Title
         header = ctk.CTkFrame(self, fg_color="transparent")
@@ -29,8 +31,9 @@ class PurchaseView(ctk.CTkFrame):
         ctk.CTkFrame(form_card, height=1, fg_color=COLORS["border"]).pack(fill="x", padx=15)
 
         # Product dropdown
-        products_df = self.db.execute_query("SELECT product_id, name FROM products ORDER BY name")
-        self.product_map = {f"{r['product_id']} - {r['name']}": r['product_id'] for _, r in products_df.iterrows()}
+        # Product dropdown using service
+        products = self.product_service.search_products("")
+        self.product_map = {f"{p['product_id']} - {p['name']}": p['product_id'] for p in products}
         product_options = list(self.product_map.keys())
 
         self.product_combo = self._field(form_card, "Product *", "combo", options=product_options)
@@ -96,12 +99,9 @@ class PurchaseView(ctk.CTkFrame):
         for w in self.history_frame.winfo_children():
             w.destroy()
 
-        df = self.db.execute_query("""
-            SELECT pur.purchase_id, pur.date, p.name, pur.qty, pur.cost_per_unit, pur.total_cost
-            FROM purchases pur
-            JOIN products p ON pur.product_id = p.product_id
-            ORDER BY pur.date DESC LIMIT 15
-        """)
+        df = self.reporting_service.get_purchase_history()
+        if not df.empty:
+            df = df.head(15)
 
         if df.empty:
             ctk.CTkLabel(self.history_frame, text="No purchases recorded yet.",
@@ -114,7 +114,7 @@ class PurchaseView(ctk.CTkFrame):
             
             left = ctk.CTkFrame(card, fg_color="transparent")
             left.pack(side="left", padx=12, pady=8)
-            ctk.CTkLabel(left, text=row['name'], font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
+            ctk.CTkLabel(left, text=row['product_name'], font=ctk.CTkFont(size=12, weight="bold")).pack(anchor="w")
             ctk.CTkLabel(left, text=f"{row['date'][:10]}  •  Qty: {row['qty']}",
                         font=ctk.CTkFont(size=10), text_color=COLORS["text_muted"]).pack(anchor="w")
             
@@ -140,26 +140,11 @@ class PurchaseView(ctk.CTkFrame):
             qty = int(qty_str)
             cost = float(cost_str)
             
-            if qty <= 0 or cost <= 0:
-                messagebox.showwarning("Invalid", "Quantity and Cost must be positive numbers!")
-                return
-
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            purchase_id = self.db.get_next_purchase_id()
-            batch_id = f"{pid}-{datetime.now().strftime('%Y%m%d')}-B{datetime.now().strftime('%H%M')}"
-            
-            self.db.write_purchase({
-                "purchase_id": purchase_id,
-                "date": date_str,
-                "product_id": pid,
-                "batch_id": batch_id,
-                "supplier": supplier,
-                "qty": qty,
-                "cost_per_unit": cost
-            })
+            # Use service to record purchase
+            result = self.purchase_service.record_purchase(pid, qty, cost, supplier)
             
             messagebox.showinfo("✅ Purchase Saved!", 
-                f"ID: {purchase_id}\nBatch: {batch_id}\nTotal: {DEFAULT_CURRENCY} {qty * cost:,.2f}")
+                f"ID: {result.purchase_id}\nBatch: {result.batch_id}\nTotal: {DEFAULT_CURRENCY} {result.total_cost:,.2f}")
             
             # Clear and refresh
             self.qty_entry.delete(0, 'end')
