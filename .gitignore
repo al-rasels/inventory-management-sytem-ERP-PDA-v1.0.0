@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+
+# Databases
+data/*.db
+data/*.sqlite
+data/*.db-journal
+data/*.db-wal
+
+# Excel files (Master Database)
+*.xlsx
+!docs/*.xlsx
+
+# Logs and Backups
+logs/*.log
+backups/
+scratch/
+
+# Invoices and Exports
+invoices/*.pdf
+exports/*.csv
+exports/*.xlsx
+exports/*.zip
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
