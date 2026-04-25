@@ -1,6 +1,6 @@
 """
 SunERP Professional — Main Application Window
-Features: sidebar navigation, status bar, keyboard shortcuts, view refresh on navigate.
+Features: sidebar navigation with QtAwesome icons, status bar, keyboard shortcuts.
 """
 import sys
 from PySide6.QtWidgets import (
@@ -8,15 +8,20 @@ from PySide6.QtWidgets import (
     QPushButton, QLabel, QStackedWidget, QFrame, QGraphicsDropShadowEffect
 )
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QColor, QFont, QShortcut, QKeySequence
+from PySide6.QtGui import QIcon, QShortcut, QKeySequence, QColor
+from qtawesome import icon as qta_icon
+
 from src.ui.pyside.theme import Theme
 from src.ui.pyside.widgets import StatusBar
 
 
 class NavButton(QPushButton):
-    """Sidebar navigation button with active state."""
-    def __init__(self, text, icon_text=""):
-        super().__init__(f"  {icon_text}   {text}")
+    """Sidebar navigation button with icon and active state."""
+    def __init__(self, text: str, icon: QIcon = None):
+        super().__init__(text)
+        if icon:
+            self.setIcon(icon)
+            self.setIconSize(QSize(18, 18))
         self.setFixedHeight(44)
         self.setCursor(Qt.PointingHandCursor)
         self.setCheckable(True)
@@ -27,7 +32,7 @@ class NavButton(QPushButton):
                 border: none;
                 border-radius: 8px;
                 text-align: left;
-                padding-left: 18px;
+                padding-left: 12px;
                 font-size: 14px;
                 font-weight: 500;
             }}
@@ -72,6 +77,7 @@ class ERPAppWindow(QMainWindow):
 
         self._setup_shortcuts()
 
+    # ----- Sidebar ---------------------------------------------------------
     def _setup_sidebar(self, parent):
         sidebar = QFrame()
         sidebar.setFixedWidth(240)
@@ -91,11 +97,19 @@ class ERPAppWindow(QMainWindow):
         sl.setContentsMargins(12, 24, 12, 24)
         sl.setSpacing(6)
 
-        # Logo
-        logo = QLabel("☀ SunERP")
-        logo.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border: none;")
-        logo.setAlignment(Qt.AlignCenter)
-        sl.addWidget(logo)
+        # Logo with QtAwesome icon
+        logo_layout = QHBoxLayout()
+        logo_layout.setAlignment(Qt.AlignCenter)
+        logo_icon = QLabel()
+        logo_icon.setPixmap(qta_icon('fa5s.store-alt', color=Theme.ACCENT_LIGHT).pixmap(24, 24))
+        logo_icon.setStyleSheet("border: none; background: transparent;")
+        logo_text = QLabel("SunERP")
+        logo_text.setStyleSheet(
+            f"font-size: 22px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border: none; background: transparent;"
+        )
+        logo_layout.addWidget(logo_icon)
+        logo_layout.addWidget(logo_text)
+        sl.addLayout(logo_layout)
 
         ver = QLabel("Professional v3.0")
         ver.setAlignment(Qt.AlignCenter)
@@ -104,15 +118,16 @@ class ERPAppWindow(QMainWindow):
         sl.addSpacing(30)
 
         self.nav_buttons = []
+        # Define navigation items with QtAwesome icons
         nav_items = [
-            ("Dashboard", "📊", "F5"),
-            ("Products", "📦", "F1"),
-            ("Inventory", "📋", ""),
-            ("Sales", "🛒", "F2"),
-            ("Purchases", "🚚", "F3"),
-            ("Transactions", "📋", ""),
-            ("Analytics", "📈", ""),
-            ("Settings", "⚙️", ""),
+            ("Dashboard", qta_icon('fa5s.tachometer-alt', color=Theme.TEXT_MUTED), "F5"),
+            ("Products", qta_icon('fa5s.box', color=Theme.TEXT_MUTED), "F1"),
+            ("Inventory", qta_icon('fa5s.clipboard-list', color=Theme.TEXT_MUTED), ""),
+            ("Sales", qta_icon('fa5s.shopping-cart', color=Theme.TEXT_MUTED), "F2"),
+            ("Purchases", qta_icon('fa5s.truck', color=Theme.TEXT_MUTED), "F3"),
+            ("Transactions", qta_icon('fa5s.list-alt', color=Theme.TEXT_MUTED), ""),
+            ("Analytics", qta_icon('fa5s.chart-line', color=Theme.TEXT_MUTED), ""),
+            ("Settings", qta_icon('fa5s.cog', color=Theme.TEXT_MUTED), ""),
         ]
 
         for text, icon, shortcut in nav_items:
@@ -125,35 +140,50 @@ class ERPAppWindow(QMainWindow):
 
         sl.addStretch()
 
-        # Logout
-        logout_btn = NavButton("Logout", "🚪")
-        logout_btn.setStyleSheet(logout_btn.styleSheet().replace(Theme.ACCENT, Theme.DANGER))
+        # Logout button with icon
+        logout_btn = NavButton("Logout", qta_icon('fa5s.sign-out-alt', color=Theme.DANGER))
+        logout_btn.setStyleSheet(
+            logout_btn.styleSheet().replace(Theme.ACCENT, Theme.DANGER)
+        )
         sl.addWidget(logout_btn)
 
         parent.addWidget(sidebar)
         if self.nav_buttons:
             self.nav_buttons[0][0].setChecked(True)
 
+    # ----- Content area ----------------------------------------------------
     def _setup_content(self, parent):
         content = QWidget()
         cl = QVBoxLayout(content)
         cl.setContentsMargins(24, 20, 24, 16)
         cl.setSpacing(16)
 
-        # Top bar
+        # Top bar with title and user badge
         top = QHBoxLayout()
         self.title_lbl = QLabel("Dashboard")
         self.title_lbl.setStyleSheet(f"font-size: 26px; font-weight: bold; color: {Theme.TEXT_PRIMARY};")
-        self.user_badge = QLabel("👤 Admin")
-        self.user_badge.setStyleSheet(f"""
-            font-size: 13px; color: {Theme.TEXT_SECONDARY};
-            background-color: {Theme.BG_SECONDARY};
-            padding: 6px 14px; border-radius: 16px;
-            border: 1px solid {Theme.BORDER};
-        """)
         top.addWidget(self.title_lbl)
         top.addStretch()
-        top.addWidget(self.user_badge)
+
+        # User badge (icon + label)
+        badge_widget = QWidget()
+        badge_widget.setStyleSheet(f"""
+            background-color: {Theme.BG_SECONDARY};
+            border-radius: 16px;
+            border: 1px solid {Theme.BORDER};
+            padding: 2px 8px;
+        """)
+        badge_layout = QHBoxLayout(badge_widget)
+        badge_layout.setContentsMargins(6, 2, 10, 2)
+        badge_layout.setSpacing(4)
+        user_icon = QLabel()
+        user_icon.setPixmap(qta_icon('fa5s.user', color=Theme.TEXT_SECONDARY).pixmap(14, 14))
+        user_icon.setStyleSheet("background: transparent; border: none;")
+        badge_layout.addWidget(user_icon)
+        user_label = QLabel("Admin")
+        user_label.setStyleSheet(f"font-size: 13px; color: {Theme.TEXT_SECONDARY}; background: transparent; border: none;")
+        badge_layout.addWidget(user_label)
+        top.addWidget(badge_widget)
         cl.addLayout(top)
 
         # Stacked views
@@ -208,6 +238,7 @@ class ERPAppWindow(QMainWindow):
         self.stack.addWidget(settings)
         self.views["Settings"] = (self.stack.count() - 1, settings)
 
+    # ----- Navigation ------------------------------------------------------
     def _on_nav(self, clicked_btn, text):
         for btn, _ in self.nav_buttons:
             if btn != clicked_btn:
@@ -233,6 +264,7 @@ class ERPAppWindow(QMainWindow):
                 self._on_nav(btn, text)
                 break
 
+    # ----- Shortcuts -------------------------------------------------------
     def _setup_shortcuts(self):
         QShortcut(QKeySequence("F5"), self, lambda: self._navigate_to("Dashboard"))
         QShortcut(QKeySequence("F1"), self, lambda: self._navigate_to("Products"))

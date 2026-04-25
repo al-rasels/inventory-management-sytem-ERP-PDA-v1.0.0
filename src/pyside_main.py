@@ -1,6 +1,9 @@
 """
 SunERP Professional — Application Entry Point
 Initializes all services, repositories, and launches the PySide6 UI.
+
+Icons are provided by QtAwesome in the UI layer (views, widgets, app window).
+No icon or emoji strings are required at this level.
 """
 import sys
 import os
@@ -28,23 +31,23 @@ from src.ui.pyside.app import ERPAppWindow
 
 def main():
     app = QApplication(sys.argv)
-    
+
     # Global font
     font = QFont("Segoe UI", 10)
     app.setFont(font)
-    
+
     # ── Core ──
     db = DatabaseEngine()
-    
+
     # Wire AuditLogger to write to SQLite
     AuditLogger.set_db(db)
-    
+
     # ── Repositories ──
     product_repo = ProductRepository(db)
     sales_repo = SalesRepository(db)
     purchase_repo = PurchaseRepository(db)
     audit_repo = AuditRepository(db)
-    
+
     # ── Services ──
     pdf_service = PDFService()
     product_service = ProductService(product_repo)
@@ -52,7 +55,7 @@ def main():
     sales_service = SalesService(sales_repo, inventory_service, pdf_service)
     purchase_service = PurchaseService(purchase_repo, product_service)
     report_service = ReportService(db, pdf_service)
-    
+
     services = {
         'inventory': inventory_service,
         'sales': sales_service,
@@ -61,11 +64,11 @@ def main():
         'report': report_service,
         'db': db,
     }
-    
+
     # ── Launch ──
     window = ERPAppWindow(services)
     window.show()
-    
+
     sys.exit(app.exec())
 
 

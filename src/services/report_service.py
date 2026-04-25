@@ -36,7 +36,7 @@ class ReportService:
         """Export full system report to Excel."""
         return DataExporter.export_excel_report(self.db)
 
-    def get_sales_summary(self, days: Optional[int] = 30) -> Dict[str, Any]:
+    def get_sales_summary(self, days: Optional[int] = 30, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
         """Returns summary of sales over a period, or all-time if days is None."""
         query = """
             SELECT SUM(revenue) as total_revenue, 
@@ -44,14 +44,18 @@ class ReportService:
                    SUM(qty) as total_units,
                    COUNT(DISTINCT sales_id) as total_transactions
             FROM sales 
+            WHERE 1=1
         """
-        params = ()
-        if days is not None:
-            start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-            query += " WHERE date >= ?"
-            params = (start_date,)
+        params = []
+        if start_date and end_date:
+            query += " AND date BETWEEN ? AND ?"
+            params.extend([start_date, end_date])
+        elif days is not None:
+            start_dt = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            query += " AND date >= ?"
+            params.append(start_dt)
             
-        df = self.db.execute_query(query, params)
+        df = self.db.execute_query(query, tuple(params))
         if df.empty or df.iloc[0]['total_revenue'] is None:
             return {"revenue": 0, "profit": 0, "units": 0, "sales_count": 0}
         
@@ -125,15 +129,25 @@ class ReportService:
         """
         return self.db.execute_query(query)
 
-    def get_profit_by_category(self) -> pd.DataFrame:
+    def get_profit_by_category(self, days: Optional[int] = None, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
         """Returns revenue, profit, and margin by product category."""
         query = """
             SELECT p.category, SUM(s.revenue) as rev, SUM(s.profit) as prof,
                    CASE WHEN SUM(s.revenue) > 0 THEN SUM(s.profit) * 100.0 / SUM(s.revenue) ELSE 0 END as margin
             FROM sales s JOIN products p ON s.product_id = p.product_id
-            GROUP BY p.category ORDER BY prof DESC
+            WHERE 1=1
         """
-        return self.db.execute_query(query)
+        params = []
+        if start_date and end_date:
+            query += " AND s.date BETWEEN ? AND ?"
+            params.extend([start_date, end_date])
+        elif days is not None:
+            start_dt = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            query += " AND s.date >= ?"
+            params.append(start_dt)
+
+        query += " GROUP BY p.category ORDER BY prof DESC"
+        return self.db.execute_query(query, tuple(params))
 
     def get_recent_activity(self, limit: int = 8) -> pd.DataFrame:
         """Returns combined recent sales and purchases."""
@@ -147,13 +161,28 @@ class ReportService:
         """
         return self.db.execute_query(query, (limit,))
 
-    def get_daily_sales_trend(self, days: int = 7) -> pd.DataFrame:
+    def get_daily_sales_trend(self, days: Optional[int] = 7, start_date: Optional[str] = None, end_date: Optional[str] = None) -> pd.DataFrame:
         """Returns daily revenue for charting."""
         query = """
             SELECT date, SUM(revenue) as daily_rev 
-            FROM sales GROUP BY date ORDER BY date DESC LIMIT ?
+            FROM sales 
+            WHERE 1=1
         """
-        return self.db.execute_query(query, (days,))
+        params = []
+        if start_date and end_date:
+            query += " AND date BETWEEN ? AND ?"
+            params.extend([start_date, end_date])
+        elif days is not None:
+            start_dt = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            query += " AND date >= ?"
+            params.append(start_dt)
+
+        query += " GROUP BY date ORDER BY date ASC"
+        if days is not None and not (start_date and end_date):
+             query += " LIMIT ?"
+             params.append(days)
+
+        return self.db.execute_query(query, tuple(params))
 
     def get_sales_history(self, search_term: Optional[str] = None) -> pd.DataFrame:
         """Returns sales history with optional filtering."""

@@ -4,30 +4,35 @@ Centralized theme, colors, and stylesheet generation for the entire application.
 """
 
 class Theme:
-    """Professional dark theme design tokens."""
+    """Dynamic theme system with support for Dark and Light modes."""
     
-    # === Core Palette ===
-    BG_PRIMARY = "#0F172A"       # Main background
-    BG_SECONDARY = "#1E293B"     # Card/panel background
-    BG_TERTIARY = "#334155"      # Elevated elements
-    BG_INPUT = "#0F172A"         # Input field background
+    # === Modes ===
+    DARK = "dark"
+    LIGHT = "light"
+    current_theme = DARK
+
+    # === Tokens (Defaulting to Dark) ===
+    # Colors will be updated by switch_theme()
+    BG_PRIMARY = "#0F172A"
+    BG_SECONDARY = "#1E293B"
+    BG_TERTIARY = "#334155"
+    BG_INPUT = "#0F172A"
     
-    # === Accent Colors ===
-    ACCENT = "#3B82F6"           # Primary blue
-    ACCENT_HOVER = "#2563EB"     # Blue hover
-    ACCENT_LIGHT = "#60A5FA"     # Light blue for text
+    ACCENT = "#3B82F6"
+    ACCENT_HOVER = "#2563EB"
+    ACCENT_LIGHT = "#60A5FA"
     
-    SUCCESS = "#10B981"          # Green
+    SUCCESS = "#10B981"
     SUCCESS_HOVER = "#059669"
-    SUCCESS_BG = "#064E3B"       # Subtle green bg
+    SUCCESS_BG = "#064E3B"
     
-    DANGER = "#EF4444"           # Red
+    DANGER = "#EF4444"
     DANGER_HOVER = "#DC2626"
-    DANGER_BG = "#450A0A"        # Subtle red bg
+    DANGER_BG = "#450A0A"
     
-    WARNING = "#F59E0B"          # Amber
+    WARNING = "#F59E0B"
     WARNING_HOVER = "#D97706"
-    WARNING_BG = "#451A03"       # Subtle amber bg
+    WARNING_BG = "#451A03"
     
     ORANGE = "#F97316"
     ORANGE_HOVER = "#EA580C"
@@ -35,18 +40,16 @@ class Theme:
     PURPLE = "#8B5CF6"
     PURPLE_HOVER = "#7C3AED"
     
-    # === Text Colors ===
-    TEXT_PRIMARY = "#F8FAFC"     # Bright white
-    TEXT_SECONDARY = "#CBD5E1"   # Muted white
-    TEXT_MUTED = "#64748B"       # Gray
-    TEXT_ACCENT = "#60A5FA"      # Blue text
+    TEXT_PRIMARY = "#F8FAFC"
+    TEXT_SECONDARY = "#CBD5E1"
+    TEXT_MUTED = "#64748B"
+    TEXT_ACCENT = "#60A5FA"
     
-    # === Border Colors ===
     BORDER = "#334155"
     BORDER_LIGHT = "#475569"
     BORDER_FOCUS = "#3B82F6"
     
-    # === Sizing ===
+    # Static Design Tokens
     RADIUS_SM = "4px"
     RADIUS_MD = "8px"
     RADIUS_LG = "12px"
@@ -55,10 +58,52 @@ class Theme:
     
     FONT_FAMILY = "'Segoe UI', 'Inter', 'SF Pro Display', system-ui, sans-serif"
     
-    # === Shadows ===
     SHADOW_SM = "0 1px 2px rgba(0,0,0,0.3)"
     SHADOW_MD = "0 4px 6px rgba(0,0,0,0.4)"
     SHADOW_LG = "0 10px 15px rgba(0,0,0,0.5)"
+
+    @classmethod
+    def apply_theme(cls, mode: str):
+        """Updates color tokens based on the selected mode."""
+        cls.current_theme = mode
+        if mode == cls.LIGHT:
+            cls.BG_PRIMARY = "#F1F5F9"    # Slate 100
+            cls.BG_SECONDARY = "#FFFFFF"   # White
+            cls.BG_TERTIARY = "#E2E8F0"    # Slate 200
+            cls.BG_INPUT = "#FFFFFF"
+            
+            cls.TEXT_PRIMARY = "#0F172A"   # Slate 900
+            cls.TEXT_SECONDARY = "#475569" # Slate 600
+            cls.TEXT_MUTED = "#94A3B8"     # Slate 400
+            cls.TEXT_ACCENT = "#2563EB"    # Blue 600
+            
+            cls.BORDER = "#E2E8F0"
+            cls.BORDER_LIGHT = "#CBD5E1"
+            cls.BORDER_FOCUS = "#3B82F6"
+            
+            cls.ACCENT_LIGHT = "#2563EB"
+            cls.SUCCESS_BG = "#DCFCE7"
+            cls.DANGER_BG = "#FEE2E2"
+            cls.WARNING_BG = "#FEF3C7"
+        else:
+            cls.BG_PRIMARY = "#0F172A"
+            cls.BG_SECONDARY = "#1E293B"
+            cls.BG_TERTIARY = "#334155"
+            cls.BG_INPUT = "#0F172A"
+            
+            cls.TEXT_PRIMARY = "#F8FAFC"
+            cls.TEXT_SECONDARY = "#CBD5E1"
+            cls.TEXT_MUTED = "#64748B"
+            cls.TEXT_ACCENT = "#60A5FA"
+            
+            cls.BORDER = "#334155"
+            cls.BORDER_LIGHT = "#475569"
+            cls.BORDER_FOCUS = "#3B82F6"
+            
+            cls.ACCENT_LIGHT = "#60A5FA"
+            cls.SUCCESS_BG = "#064E3B"
+            cls.DANGER_BG = "#450A0A"
+            cls.WARNING_BG = "#451A03"
     
     @classmethod
     def global_stylesheet(cls):
@@ -124,15 +169,16 @@ class Theme:
     
     @classmethod
     def card_style(cls, border_top_color=None):
-        """Style for card/panel containers."""
+        """Style for card/panel containers. Uses a specific ID selector to avoid leakage."""
         border_top = f"border-top: 3px solid {border_top_color};" if border_top_color else ""
         return f"""
-            QFrame {{
+            #SettingsCard {{
                 background-color: {cls.BG_SECONDARY};
                 border-radius: {cls.RADIUS_LG};
                 border: 1px solid {cls.BORDER};
                 {border_top}
             }}
+            #SettingsCard QLabel {{ border: none; background: transparent; }}
         """
     
     @classmethod
@@ -227,6 +273,7 @@ class Theme:
                 gridline-color: {cls.BORDER};
                 selection-background-color: {cls.BG_TERTIARY};
                 selection-color: {cls.TEXT_PRIMARY};
+                outline: 0;
             }}
             QHeaderView::section {{
                 background-color: {cls.BG_SECONDARY};
@@ -240,11 +287,14 @@ class Theme:
             }}
             QTableWidget::item {{
                 padding: 8px 6px;
+                border: none;
                 border-bottom: 1px solid {cls.BORDER};
             }}
             QTableWidget::item:selected {{
                 background-color: {cls.BG_TERTIARY};
                 color: {cls.TEXT_PRIMARY};
+                border: none;
+                border-bottom: 1px solid {cls.BORDER};
             }}
         """
     
@@ -261,14 +311,18 @@ class Theme:
                 font-size: 13px;
                 selection-background-color: {cls.BG_TERTIARY};
                 selection-color: {cls.TEXT_PRIMARY};
+                outline: 0;
             }}
             QTableView::item {{
                 padding: 6px;
+                border: none;
                 border-bottom: 1px solid {cls.BORDER};
             }}
             QTableView::item:selected {{
                 background-color: {cls.BG_TERTIARY};
                 color: {cls.TEXT_PRIMARY};
+                border: none;
+                border-bottom: 1px solid {cls.BORDER};
             }}
             QHeaderView::section {{
                 background-color: {cls.BG_PRIMARY};
@@ -385,18 +439,20 @@ class Theme:
         return f"""
             QPushButton {{
                 background-color: transparent;
-                color: {cls.DANGER};
-                border: 1px solid {cls.DANGER};
+                color: {cls.TEXT_MUTED};
+                border: none;
                 border-radius: {cls.RADIUS_SM};
-                padding: 4px 8px;
-                font-size: 14px;
-                font-weight: bold;
-                min-width: 28px;
-                max-width: 28px;
-                min-height: 28px;
-                max-height: 28px;
+                padding: 4px;
+                min-width: 24px;
+                max-width: 24px;
+                min-height: 24px;
+                max-height: 24px;
             }}
             QPushButton:hover {{
+                background-color: {cls.DANGER_BG};
+                color: {cls.DANGER};
+            }}
+            QPushButton:pressed {{
                 background-color: {cls.DANGER};
                 color: white;
             }}
