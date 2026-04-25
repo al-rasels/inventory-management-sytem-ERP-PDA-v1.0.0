@@ -1,9 +1,7 @@
 import sqlite3
 import pandas as pd
-import openpyxl
 from datetime import datetime
-from src.core.config import EXCEL_DB_PATH, SQLITE_DB_PATH
-from src.core.safety import SafetyManager
+from src.core.config import SQLITE_DB_PATH
 import os
 import logging
 
@@ -11,39 +9,38 @@ logger = logging.getLogger(__name__)
 
 class DatabaseEngine:
     def __init__(self):
-        self.sqlite_path = SQLITE_DB_PATH
-        self.excel_path = EXCEL_DB_PATH
+        self.db_path = SQLITE_DB_PATH
         self._init_sqlite()
 
     def _init_sqlite(self):
         """Initialize SQLite schema if it doesn't exist."""
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS products (
                 product_id TEXT PRIMARY KEY,
-                sku_code TEXT,
-                name TEXT,
-                category TEXT,
-                unit TEXT,
-                status TEXT,
-                sell_price REAL,
-                cost_price REAL,
-                reorder_qty INTEGER
+                sku_code TEXT UNIQUE,
+                name TEXT NOT NULL,
+                category TEXT DEFAULT '',
+                unit TEXT DEFAULT 'pcs',
+                status TEXT DEFAULT 'Active',
+                sell_price REAL DEFAULT 0,
+                cost_price REAL DEFAULT 0,
+                reorder_qty INTEGER DEFAULT 50
             )
         ''')
 
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS purchases (
                 purchase_id TEXT PRIMARY KEY,
-                date TEXT,
-                product_id TEXT,
+                date TEXT NOT NULL,
+                product_id TEXT NOT NULL,
                 batch_id TEXT,
                 supplier TEXT DEFAULT '',
-                qty INTEGER,
-                cost_per_unit REAL,
-                total_cost REAL,
+                qty INTEGER NOT NULL,
+                cost_per_unit REAL NOT NULL,
+                total_cost REAL NOT NULL,
                 FOREIGN KEY (product_id) REFERENCES products (product_id)
             )
         ''')
@@ -51,16 +48,26 @@ class DatabaseEngine:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS sales (
                 sales_id TEXT PRIMARY KEY,
-                date TEXT,
-                product_id TEXT,
+                date TEXT NOT NULL,
+                product_id TEXT NOT NULL,
                 customer TEXT DEFAULT 'Walk-in',
-                qty INTEGER,
-                sell_price REAL,
+                qty INTEGER NOT NULL,
+                sell_price REAL NOT NULL,
                 discount REAL DEFAULT 0,
-                revenue REAL,
-                cogs REAL,
-                profit REAL,
+                revenue REAL NOT NULL,
+                cogs REAL DEFAULT 0,
+                profit REAL DEFAULT 0,
+                payment_method TEXT DEFAULT 'Cash',
                 FOREIGN KEY (product_id) REFERENCES products (product_id)
+            )
+        ''')
+
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                role TEXT DEFAULT 'Cashier',
+                full_name TEXT DEFAULT ''
             )
         ''')
 
@@ -74,18 +81,40 @@ class DatabaseEngine:
             )
         ''')
 
-        # Indexes for performance on 50,000+ records
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS held_sales (
+                hold_id TEXT PRIMARY KEY,
+                customer TEXT DEFAULT 'Walk-in',
+                cart_json TEXT NOT NULL,
+                discount REAL DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                note TEXT DEFAULT ''
+            )
+        ''')
+
+        # Indexes for performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product ON sales(product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_purchases_product ON purchases(product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku_code)')
+
+        # Seed default admin if users table is empty
+        cursor.execute("SELECT COUNT(*) FROM users")
+        if cursor.fetchone()[0] == 0:
+            import hashlib
+            pw_hash = hashlib.sha256("admin123".encode()).hexdigest()
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)",
+                ('admin', pw_hash, 'Admin', 'System Administrator')
+            )
 
         conn.commit()
         conn.close()
 
     def execute_query(self, query, params=()):
         """Execute a SELECT query and return a pandas DataFrame."""
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = sqlite3.connect(self.db_path)
         try:
             df = pd.read_sql_query(query, conn, params=params)
             return df
@@ -94,36 +123,30 @@ class DatabaseEngine:
 
     def execute_write(self, query, params=()):
         """Execute an INSERT/UPDATE/DELETE query."""
-        conn = sqlite3.connect(self.sqlite_path)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
             cursor.execute(query, params)
             conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"Write failed: {e}")
+            raise
         finally:
             conn.close()
-        """Manually sync all SQLite data back to the Master Excel file."""
-        import openpyxl
+
+    def execute_many(self, query, params_list):
+        """Execute a batch write operation."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
         try:
-            wb = openpyxl.load_workbook(self.excel_path)
-            
-            # Sync Sales
-            ws_sales = wb['Sales_Log']
-            df_sales = self.execute_query("SELECT * FROM sales")
-            # Clear old rows (starting from row 5)
-            for row in range(5, ws_sales.max_row + 1):
-                for col in range(1, 10):
-                    ws_sales.cell(row=row, column=col).value = None
-            
-            for i, row in df_sales.iterrows():
-                r = i + 5
-                ws_sales.cell(row=r, column=1).value = row['sales_id']
-                ws_sales.cell(row=r, column=2).value = row['date']
-                ws_sales.cell(row=r, column=3).value = row['product_id']
-                ws_sales.cell(row=r, column=5).value = row['qty']
-                ws_sales.cell(row=r, column=6).value = row['sell_price']
-                ws_sales.cell(row=r, column=7).value = row['revenue']
-            
-            wb.save(self.excel_path)
-            return True, "Sync to Excel completed successfully!"
+            cursor.executemany(query, params_list)
+            conn.commit()
+            return True
         except Exception as e:
-            return False, str(e)
+            conn.rollback()
+            logger.error(f"Batch write failed: {e}")
+            raise
+        finally:
+            conn.close()

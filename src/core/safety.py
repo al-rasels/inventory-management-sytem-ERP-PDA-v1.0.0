@@ -3,7 +3,7 @@ import shutil
 import logging
 import functools
 from datetime import datetime
-from src.core.config import EXCEL_DB_PATH, BACKUP_DIR, LOG_DIR
+from src.core.config import BACKUP_DIR, LOG_DIR, SQLITE_DB_PATH
 
 # Setup Logging
 if not os.path.exists(LOG_DIR):
@@ -18,16 +18,20 @@ logging.basicConfig(
 class SafetyManager:
     @staticmethod
     def create_backup():
-        """Creates a timestamped backup of the primary Excel database."""
+        """Creates a timestamped backup of the SQLite database."""
         if not os.path.exists(BACKUP_DIR):
             os.makedirs(BACKUP_DIR)
         
+        if not os.path.exists(SQLITE_DB_PATH):
+            logging.warning("No database file to back up.")
+            return None
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"backup_ERP_{timestamp}.xlsx"
+        filename = f"backup_ERP_{timestamp}.db"
         backup_path = os.path.join(BACKUP_DIR, filename)
         
         try:
-            shutil.copy2(EXCEL_DB_PATH, backup_path)
+            shutil.copy2(SQLITE_DB_PATH, backup_path)
             logging.info(f"Backup created: {filename}")
             return backup_path
         except Exception as e:
@@ -36,11 +40,11 @@ class SafetyManager:
 
     @staticmethod
     def rollback(backup_path):
-        """Restores the Excel database from a backup."""
+        """Restores the database from a backup."""
         if not backup_path or not os.path.exists(backup_path):
             return False
         try:
-            shutil.copy2(backup_path, EXCEL_DB_PATH)
+            shutil.copy2(backup_path, SQLITE_DB_PATH)
             logging.warning(f"Rollback performed using {backup_path}")
             return True
         except Exception as e:
@@ -49,31 +53,41 @@ class SafetyManager:
 
     @staticmethod
     def transactional(func):
-        """Decorator to ensure atomicity via backup/rollback."""
+        """Decorator for service-layer transaction safety.
+        
+        Uses try/except with logging. For critical operations,
+        a pre-operation backup can be triggered manually.
+        This avoids creating a file backup on every single write.
+        """
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            backup_path = SafetyManager.create_backup()
             try:
                 result = func(*args, **kwargs)
                 return result
             except Exception as e:
                 logging.error(f"Transaction failed in {func.__name__}: {str(e)}")
-                if backup_path:
-                    SafetyManager.rollback(backup_path)
-                raise e
+                raise
         return wrapper
 
-class CloudBackup:
-    """Interface for Cloud Backups (Google Drive/S3)."""
-    @staticmethod
-    def sync_to_cloud(file_path):
-        # Placeholder for future cloud integration
-        logging.info(f"Cloud sync started for {file_path}")
-        # Logic for API upload goes here
-        pass
 
 class AuditLogger:
+    """Writes audit entries to both file log and SQLite."""
+    
+    _db = None
+    
+    @classmethod
+    def set_db(cls, db_engine):
+        """Set the database engine for SQLite audit logging."""
+        cls._db = db_engine
+    
     @staticmethod
     def log_action(user, action, details):
-        logging.info(f"USER: {user} | ACTION: {action} | DETAILS: {details}")
-        # Also write to SQLite audit_logs table via DatabaseEngine if needed
+        logging.info(f"AUDIT | USER: {user} | ACTION: {action} | DETAILS: {details}")
+        if AuditLogger._db:
+            try:
+                AuditLogger._db.execute_write(
+                    "INSERT INTO audit_logs (user, action, details) VALUES (?, ?, ?)",
+                    (user, action, details)
+                )
+            except Exception:
+                pass  # Don't let audit logging crash the app

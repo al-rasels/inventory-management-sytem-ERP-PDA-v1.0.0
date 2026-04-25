@@ -1,11 +1,18 @@
+"""
+SunERP Professional — Application Entry Point
+Initializes all services, repositories, and launches the PySide6 UI.
+"""
 import sys
 import os
 
-# Ensure the root project directory is in the Python path
+# Ensure project root is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import QFont
+
 from src.core.database import DatabaseEngine
+from src.core.safety import AuditLogger
 from src.repositories.product_repository import ProductRepository
 from src.repositories.sales_repository import SalesRepository
 from src.repositories.purchase_repository import PurchaseRepository
@@ -15,24 +22,31 @@ from src.services.sales_service import SalesService
 from src.services.purchase_service import PurchaseService
 from src.services.product_service import ProductService
 from src.services.report_service import ReportService
+from src.services.pdf_service import PDFService
 from src.ui.pyside.app import ERPAppWindow
+
 
 def main():
     app = QApplication(sys.argv)
     
-    # Initialize Core & Repositories
+    # Global font
+    font = QFont("Segoe UI", 10)
+    app.setFont(font)
+    
+    # ── Core ──
     db = DatabaseEngine()
+    
+    # Wire AuditLogger to write to SQLite
+    AuditLogger.set_db(db)
+    
+    # ── Repositories ──
     product_repo = ProductRepository(db)
     sales_repo = SalesRepository(db)
     purchase_repo = PurchaseRepository(db)
     audit_repo = AuditRepository(db)
     
-    # Initialize PDF Service placeholder
-    class DummyPDFService:
-        def generate_receipt(self, sale_record): return True
-    pdf_service = DummyPDFService()
-
-    # Initialize Services
+    # ── Services ──
+    pdf_service = PDFService()
     product_service = ProductService(product_repo)
     inventory_service = InventoryService(product_repo, sales_repo, purchase_repo)
     sales_service = SalesService(sales_repo, inventory_service, pdf_service)
@@ -45,12 +59,15 @@ def main():
         'purchase': purchase_service,
         'product': product_service,
         'report': report_service,
-        'db': db # Exposed for advanced debug/sync if needed
+        'db': db,
     }
     
+    # ── Launch ──
     window = ERPAppWindow(services)
     window.show()
+    
     sys.exit(app.exec())
+
 
 if __name__ == "__main__":
     main()

@@ -1,196 +1,249 @@
+"""
+SunERP Professional — Main Application Window
+Features: sidebar navigation, status bar, keyboard shortcuts, view refresh on navigate.
+"""
 import sys
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                               QHBoxLayout, QPushButton, QLabel, QStackedWidget, QFrame, QGraphicsDropShadowEffect)
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QSize
-from PySide6.QtGui import QIcon, QFont, QColor
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QStackedWidget, QFrame, QGraphicsDropShadowEffect
+)
+from PySide6.QtCore import Qt, QSize
+from PySide6.QtGui import QColor, QFont, QShortcut, QKeySequence
+from src.ui.pyside.theme import Theme
+from src.ui.pyside.widgets import StatusBar
 
-class AnimatedButton(QPushButton):
+
+class NavButton(QPushButton):
+    """Sidebar navigation button with active state."""
     def __init__(self, text, icon_text=""):
-        super().__init__(f"{icon_text}  {text}")
-        self.setFixedHeight(45)
+        super().__init__(f"  {icon_text}   {text}")
+        self.setFixedHeight(44)
         self.setCursor(Qt.PointingHandCursor)
-        self.setStyleSheet("""
-            QPushButton {
+        self.setCheckable(True)
+        self.setStyleSheet(f"""
+            QPushButton {{
                 background-color: transparent;
-                color: #A0AEC0;
+                color: {Theme.TEXT_MUTED};
                 border: none;
                 border-radius: 8px;
                 text-align: left;
-                padding-left: 20px;
+                padding-left: 18px;
                 font-size: 14px;
                 font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #2D3748;
-                color: #FFFFFF;
-            }
-            QPushButton:checked {
-                background-color: #3182CE;
-                color: #FFFFFF;
-                font-weight: bold;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {Theme.BG_TERTIARY};
+                color: {Theme.TEXT_PRIMARY};
+            }}
+            QPushButton:checked {{
+                background-color: {Theme.ACCENT};
+                color: white;
+                font-weight: 600;
+            }}
         """)
-        self.setCheckable(True)
+
 
 class ERPAppWindow(QMainWindow):
     def __init__(self, services):
         super().__init__()
         self.services = services
-        self.setWindowTitle("Sun Warehouse ERP - Premium")
-        self.resize(1280, 800)
-        self.setStyleSheet("background-color: #1A202C; color: #FFFFFF; font-family: 'Segoe UI', Inter, sans-serif;")
-        
-        # Main Layout
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QHBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
+        self.setWindowTitle("SunERP Professional — POS & Inventory")
+        self.resize(1360, 820)
+        self.setMinimumSize(1100, 700)
+        self.setStyleSheet(Theme.global_stylesheet())
 
-        self._setup_sidebar()
-        self._setup_content_area()
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-    def _setup_sidebar(self):
-        self.sidebar = QFrame()
-        self.sidebar.setFixedWidth(250)
-        self.sidebar.setStyleSheet("background-color: #2D3748; border-right: 1px solid #4A5568;")
-        
-        # Shadow for sidebar
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+
+        self._setup_sidebar(body)
+        self._setup_content(body)
+        root.addLayout(body, stretch=1)
+
+        # Status Bar
+        self.status_bar = StatusBar()
+        root.addWidget(self.status_bar)
+
+        self._setup_shortcuts()
+
+    def _setup_sidebar(self, parent):
+        sidebar = QFrame()
+        sidebar.setFixedWidth(240)
+        sidebar.setStyleSheet(f"""
+            QFrame {{
+                background-color: {Theme.BG_SECONDARY};
+                border-right: 1px solid {Theme.BORDER};
+            }}
+        """)
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
-        shadow.setColor(QColor(0, 0, 0, 80))
-        shadow.setOffset(3, 0)
-        self.sidebar.setGraphicsEffect(shadow)
+        shadow.setColor(QColor(0, 0, 0, 60))
+        shadow.setOffset(2, 0)
+        sidebar.setGraphicsEffect(shadow)
 
-        self.sidebar_layout = QVBoxLayout(self.sidebar)
-        self.sidebar_layout.setContentsMargins(15, 30, 15, 30)
-        self.sidebar_layout.setSpacing(10)
+        sl = QVBoxLayout(sidebar)
+        sl.setContentsMargins(12, 24, 12, 24)
+        sl.setSpacing(6)
 
-        # Logo Area
-        self.logo_lbl = QLabel("☀ SunERP")
-        self.logo_lbl.setStyleSheet("font-size: 24px; font-weight: bold; color: #63B3ED; border: none;")
-        self.logo_lbl.setAlignment(Qt.AlignCenter)
-        self.sidebar_layout.addWidget(self.logo_lbl)
-        self.sidebar_layout.addSpacing(40)
+        # Logo
+        logo = QLabel("☀ SunERP")
+        logo.setStyleSheet(f"font-size: 22px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border: none;")
+        logo.setAlignment(Qt.AlignCenter)
+        sl.addWidget(logo)
 
-        # Navigation Buttons
-        self.nav_group = []
+        ver = QLabel("Professional v3.0")
+        ver.setAlignment(Qt.AlignCenter)
+        ver.setStyleSheet(Theme.label_muted())
+        sl.addWidget(ver)
+        sl.addSpacing(30)
+
+        self.nav_buttons = []
         nav_items = [
-            ("Dashboard", "📊"),
-            ("Products", "📦"),
-            ("Inventory", "📋"),
-            ("Sales", "🛒"),
-            ("Purchases", "🚚"),
-            ("Analytics", "📈"),
-            ("Settings", "⚙️")
+            ("Dashboard", "📊", "F5"),
+            ("Products", "📦", "F1"),
+            ("Inventory", "📋", ""),
+            ("Sales", "🛒", "F2"),
+            ("Purchases", "🚚", "F3"),
+            ("Transactions", "📋", ""),
+            ("Analytics", "📈", ""),
+            ("Settings", "⚙️", ""),
         ]
 
-        for text, icon in nav_items:
-            btn = AnimatedButton(text, icon)
-            btn.clicked.connect(lambda checked, b=btn, t=text: self._on_nav_clicked(b, t))
-            self.sidebar_layout.addWidget(btn)
-            self.nav_group.append(btn)
+        for text, icon, shortcut in nav_items:
+            btn = NavButton(text, icon)
+            if shortcut:
+                btn.setToolTip(f"{text} ({shortcut})")
+            btn.clicked.connect(lambda ch, b=btn, t=text: self._on_nav(b, t))
+            sl.addWidget(btn)
+            self.nav_buttons.append((btn, text))
 
-        self.sidebar_layout.addStretch()
+        sl.addStretch()
 
         # Logout
-        self.logout_btn = AnimatedButton("Logout", "🚪")
-        self.logout_btn.setStyleSheet(self.logout_btn.styleSheet().replace("#3182CE", "#E53E3E"))
-        self.sidebar_layout.addWidget(self.logout_btn)
+        logout_btn = NavButton("Logout", "🚪")
+        logout_btn.setStyleSheet(logout_btn.styleSheet().replace(Theme.ACCENT, Theme.DANGER))
+        sl.addWidget(logout_btn)
 
-        self.main_layout.addWidget(self.sidebar)
-        
-        # Default active
-        if self.nav_group:
-            self.nav_group[0].setChecked(True)
+        parent.addWidget(sidebar)
+        if self.nav_buttons:
+            self.nav_buttons[0][0].setChecked(True)
 
-    def _setup_content_area(self):
-        self.content_area = QWidget()
-        self.content_layout = QVBoxLayout(self.content_area)
-        self.content_layout.setContentsMargins(30, 30, 30, 30)
-        self.content_layout.setSpacing(20)
+    def _setup_content(self, parent):
+        content = QWidget()
+        cl = QVBoxLayout(content)
+        cl.setContentsMargins(24, 20, 24, 16)
+        cl.setSpacing(16)
 
-        # Top Bar
-        self.top_bar = QHBoxLayout()
+        # Top bar
+        top = QHBoxLayout()
         self.title_lbl = QLabel("Dashboard")
-        self.title_lbl.setStyleSheet("font-size: 28px; font-weight: bold; color: #F7FAFC;")
-        
-        self.user_lbl = QLabel("👤 Admin User")
-        self.user_lbl.setStyleSheet("font-size: 14px; color: #A0AEC0; background-color: #2D3748; padding: 8px 15px; border-radius: 15px;")
-        
-        self.top_bar.addWidget(self.title_lbl)
-        self.top_bar.addStretch()
-        self.top_bar.addWidget(self.user_lbl)
-        
-        self.content_layout.addLayout(self.top_bar)
+        self.title_lbl.setStyleSheet(f"font-size: 26px; font-weight: bold; color: {Theme.TEXT_PRIMARY};")
+        self.user_badge = QLabel("👤 Admin")
+        self.user_badge.setStyleSheet(f"""
+            font-size: 13px; color: {Theme.TEXT_SECONDARY};
+            background-color: {Theme.BG_SECONDARY};
+            padding: 6px 14px; border-radius: 16px;
+            border: 1px solid {Theme.BORDER};
+        """)
+        top.addWidget(self.title_lbl)
+        top.addStretch()
+        top.addWidget(self.user_badge)
+        cl.addLayout(top)
 
-        # Stacked Widget for Views
-        self.stacked_widget = QStackedWidget()
-        self.content_layout.addWidget(self.stacked_widget)
-        
+        # Stacked views
+        self.stack = QStackedWidget()
+        cl.addWidget(self.stack, stretch=1)
+
+        self._init_views()
+        parent.addWidget(content, stretch=1)
+
+    def _init_views(self):
         from src.ui.pyside.views.dashboard import PySideDashboard
-        
-        # Initialize views dictionary
-        self.views = {}
-        
-        # 0: Dashboard
-        dashboard = PySideDashboard(self.services['inventory'], self.services['report'])
-        self.stacked_widget.addWidget(dashboard)
-        self.views["Dashboard"] = 0
-        
         from src.ui.pyside.views.products import PySideProducts
-        
-        # 1: Products
-        products_view = PySideProducts(self.services['product'], self.services['inventory'])
-        self.stacked_widget.addWidget(products_view)
-        self.views["Products"] = 1
-        
+        from src.ui.pyside.views.inventory import PySideInventory
         from src.ui.pyside.views.sales import PySideSales
         from src.ui.pyside.views.purchases import PySidePurchases
-        from src.ui.pyside.views.inventory import PySideInventory
+        from src.ui.pyside.views.transactions import PySideTransactions
         from src.ui.pyside.views.analytics import PySideAnalytics
         from src.ui.pyside.views.settings import PySideSettings
-        
-        inventory_view = PySideInventory(self.services['inventory'])
-        self.stacked_widget.addWidget(inventory_view)
-        self.views["Inventory"] = self.stacked_widget.count() - 1
-            
-        sales_view = PySideSales(self.services['sales'], self.services['inventory'])
-        self.stacked_widget.addWidget(sales_view)
-        self.views["Sales"] = self.stacked_widget.count() - 1
-        
-        purchases_view = PySidePurchases(self.services['purchase'], self.services['product'], self.services['report'])
-        self.stacked_widget.addWidget(purchases_view)
-        self.views["Purchases"] = self.stacked_widget.count() - 1
 
-        analytics_view = PySideAnalytics(self.services['report'])
-        self.stacked_widget.addWidget(analytics_view)
-        self.views["Analytics"] = self.stacked_widget.count() - 1
+        self.views = {}
 
-        settings_view = PySideSettings(self.services['db'])
-        self.stacked_widget.addWidget(settings_view)
-        self.views["Settings"] = self.stacked_widget.count() - 1
+        dash = PySideDashboard(self.services['inventory'], self.services['report'])
+        self.stack.addWidget(dash)
+        self.views["Dashboard"] = (self.stack.count() - 1, dash)
 
-        self.main_layout.addWidget(self.content_area, stretch=1)
+        prods = PySideProducts(self.services['product'], self.services['inventory'])
+        self.stack.addWidget(prods)
+        self.views["Products"] = (self.stack.count() - 1, prods)
 
-    def _on_nav_clicked(self, clicked_btn, text):
-        for btn in self.nav_group:
+        inv = PySideInventory(self.services['inventory'])
+        self.stack.addWidget(inv)
+        self.views["Inventory"] = (self.stack.count() - 1, inv)
+
+        sales = PySideSales(self.services['sales'], self.services['inventory'])
+        sales.sale_completed.connect(lambda: self._refresh_view("Dashboard"))
+        self.stack.addWidget(sales)
+        self.views["Sales"] = (self.stack.count() - 1, sales)
+
+        purch = PySidePurchases(self.services['purchase'], self.services['product'], self.services['report'])
+        self.stack.addWidget(purch)
+        self.views["Purchases"] = (self.stack.count() - 1, purch)
+
+        trans = PySideTransactions(self.services['report'])
+        self.stack.addWidget(trans)
+        self.views["Transactions"] = (self.stack.count() - 1, trans)
+
+        analytics = PySideAnalytics(self.services['report'])
+        self.stack.addWidget(analytics)
+        self.views["Analytics"] = (self.stack.count() - 1, analytics)
+
+        settings = PySideSettings(self.services['db'])
+        self.stack.addWidget(settings)
+        self.views["Settings"] = (self.stack.count() - 1, settings)
+
+    def _on_nav(self, clicked_btn, text):
+        for btn, _ in self.nav_buttons:
             if btn != clicked_btn:
                 btn.setChecked(False)
         clicked_btn.setChecked(True)
-        
-        # Update title
         self.title_lbl.setText(text)
-        
-        # Switch stacked widget index
         if text in self.views:
-            self.stacked_widget.setCurrentIndex(self.views[text])
+            idx, view = self.views[text]
+            self.stack.setCurrentIndex(idx)
+            if hasattr(view, 'refresh'):
+                view.refresh()
+            self.status_bar.set_status(f"Viewing {text}")
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    
-    # High DPI scaling is enabled by default in Qt6
-    
-    window = ERPAppWindow(services={})
-    window.show()
-    sys.exit(app.exec())
+    def _refresh_view(self, name):
+        if name in self.views:
+            _, view = self.views[name]
+            if hasattr(view, 'refresh'):
+                view.refresh()
+
+    def _navigate_to(self, name):
+        for btn, text in self.nav_buttons:
+            if text == name:
+                self._on_nav(btn, text)
+                break
+
+    def _setup_shortcuts(self):
+        QShortcut(QKeySequence("F5"), self, lambda: self._navigate_to("Dashboard"))
+        QShortcut(QKeySequence("F1"), self, lambda: self._navigate_to("Products"))
+        QShortcut(QKeySequence("F2"), self, lambda: self._navigate_to("Sales"))
+        QShortcut(QKeySequence("F3"), self, lambda: self._navigate_to("Purchases"))
+        QShortcut(QKeySequence("Ctrl+F"), self, self._focus_search)
+
+    def _focus_search(self):
+        idx = self.stack.currentIndex()
+        for name, (i, view) in self.views.items():
+            if i == idx and hasattr(view, 'search_input'):
+                view.search_input.setFocus()
+                view.search_input.selectAll()
+                return

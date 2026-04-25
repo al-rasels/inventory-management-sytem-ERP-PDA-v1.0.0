@@ -1,115 +1,173 @@
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                               QPushButton, QFrame, QMessageBox, QFileDialog)
+"""Settings View — Database management, backup, and export."""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QMessageBox, QFileDialog
+)
 from PySide6.QtCore import Qt
+from src.ui.pyside.theme import Theme
+from src.ui.pyside.widgets import ConfirmDialog
+
 
 class PySideSettings(QWidget):
     def __init__(self, db_engine):
         super().__init__()
         self.db = db_engine
-        
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(20)
-        
-        self._build_header()
-        self._build_sync_pane()
-        self._build_backup_pane()
-        self.layout.addStretch()
-        
-    def _build_header(self):
-        header = QFrame()
-        header.setStyleSheet("background-color: #2D3748; border-radius: 8px;")
-        header.setFixedHeight(60)
-        
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(20, 0, 20, 0)
-        
-        title = QLabel("⚙️ System Settings & Data Management")
-        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #F7FAFC;")
-        layout.addWidget(title)
-        
-        self.layout.addWidget(header)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        self._build_header(layout)
+        self._build_backup(layout)
+        self._build_export(layout)
+        self._build_sync(layout)
+        layout.addStretch()
 
-    def _build_sync_pane(self):
-        pane = QFrame()
-        pane.setStyleSheet("background-color: #2D3748; border-radius: 12px;")
-        layout = QVBoxLayout(pane)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-        
-        title = QLabel("Excel Integration")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #63B3ED;")
-        layout.addWidget(title)
-        
-        desc = QLabel("Sync your primary SQLite database with the legacy Excel tracking sheet.")
-        desc.setStyleSheet("color: #A0AEC0;")
-        layout.addWidget(desc)
-        
-        btn_layout = QHBoxLayout()
-        
-        import_btn = QPushButton("⬇️ Force Import from Excel")
-        import_btn.setStyleSheet("""
-            QPushButton { background-color: #DD6B20; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
-            QPushButton:hover { background-color: #C05621; }
-        """)
-        import_btn.clicked.connect(self._sync_excel)
-        
-        export_btn = QPushButton("⬆️ Export DB to Excel")
-        export_btn.setStyleSheet("""
-            QPushButton { background-color: #38A169; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
-            QPushButton:hover { background-color: #2F855A; }
-        """)
-        export_btn.clicked.connect(self._sync_excel)
-        
-        btn_layout.addWidget(import_btn)
-        btn_layout.addWidget(export_btn)
-        btn_layout.addStretch()
-        
-        layout.addLayout(btn_layout)
-        self.layout.addWidget(pane)
+    def _build_header(self, parent):
+        bar = QFrame()
+        bar.setFixedHeight(56)
+        bar.setStyleSheet(f"QFrame {{ background-color: {Theme.BG_SECONDARY}; border-radius: {Theme.RADIUS_MD}; border: 1px solid {Theme.BORDER}; }}")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(20, 0, 20, 0)
+        t = QLabel("⚙️  System Settings & Data Management")
+        t.setStyleSheet(Theme.label_title())
+        h.addWidget(t)
+        parent.addWidget(bar)
 
-    def _build_backup_pane(self):
-        pane = QFrame()
-        pane.setStyleSheet("background-color: #2D3748; border-radius: 12px;")
-        layout = QVBoxLayout(pane)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-        
-        title = QLabel("Database Backup & Restore")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #63B3ED;")
-        layout.addWidget(title)
-        
-        desc = QLabel("Create secure ZIP backups of your entire SQLite database and Excel files.")
-        desc.setStyleSheet("color: #A0AEC0;")
-        layout.addWidget(desc)
-        
-        btn_layout = QHBoxLayout()
-        
-        backup_btn = QPushButton("📦 Create Full Backup")
-        backup_btn.setStyleSheet("""
-            QPushButton { background-color: #3182CE; color: white; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
-            QPushButton:hover { background-color: #2B6CB0; }
-        """)
-        backup_btn.clicked.connect(self._create_backup)
-        
-        btn_layout.addWidget(backup_btn)
-        btn_layout.addStretch()
-        
-        layout.addLayout(btn_layout)
-        self.layout.addWidget(pane)
+    def _build_backup(self, parent):
+        frame = QFrame()
+        frame.setStyleSheet(Theme.card_style())
+        vl = QVBoxLayout(frame)
+        vl.setContentsMargins(20, 20, 20, 20)
+        vl.setSpacing(12)
+        t = QLabel("💾  Database Backup & Restore")
+        t.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border:none; background:transparent;")
+        vl.addWidget(t)
+        d = QLabel("Create a snapshot of your SQLite database. Use restore to recover from a backup file.")
+        d.setStyleSheet(Theme.label_muted())
+        d.setWordWrap(True)
+        vl.addWidget(d)
+        bl = QHBoxLayout()
+        bb = QPushButton("📦 Create Backup")
+        bb.setStyleSheet(Theme.btn_primary())
+        bb.clicked.connect(self._create_backup)
+        rb = QPushButton("♻️ Restore from Backup")
+        rb.setStyleSheet(Theme.btn_ghost())
+        rb.clicked.connect(self._restore_backup)
+        bl.addWidget(bb)
+        bl.addWidget(rb)
+        bl.addStretch()
+        vl.addLayout(bl)
+        parent.addWidget(frame)
 
-    def _sync_excel(self):
-        try:
-            from src.repositories.sync_manager import SyncManager
-            SyncManager(self.db).sync_all()
-            QMessageBox.information(self, "Success", "Excel Synchronization Completed Successfully!")
-        except Exception as e:
-            QMessageBox.critical(self, "Sync Error", str(e))
-            
+    def _build_export(self, parent):
+        frame = QFrame()
+        frame.setStyleSheet(Theme.card_style())
+        vl = QVBoxLayout(frame)
+        vl.setContentsMargins(20, 20, 20, 20)
+        vl.setSpacing(12)
+        t = QLabel("📊  Export Reports")
+        t.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border:none; background:transparent;")
+        vl.addWidget(t)
+        d = QLabel("Export your data as Excel or CSV for external analysis.")
+        d.setStyleSheet(Theme.label_muted())
+        d.setWordWrap(True)
+        vl.addWidget(d)
+        bl = QHBoxLayout()
+        eb = QPushButton("📑 Export Full Excel Report")
+        eb.setStyleSheet(Theme.btn_success())
+        eb.clicked.connect(self._export_excel)
+        cb = QPushButton("📄 Export CSV")
+        cb.setStyleSheet(Theme.btn_ghost())
+        cb.clicked.connect(self._export_csv)
+        bl.addWidget(eb)
+        bl.addWidget(cb)
+        bl.addStretch()
+        vl.addLayout(bl)
+        parent.addWidget(frame)
+
+    def _build_sync(self, parent):
+        frame = QFrame()
+        frame.setStyleSheet(Theme.card_style())
+        vl = QVBoxLayout(frame)
+        vl.setContentsMargins(20, 20, 20, 20)
+        vl.setSpacing(12)
+        t = QLabel("🔄  Excel Legacy Sync")
+        t.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {Theme.ACCENT_LIGHT}; border:none; background:transparent;")
+        vl.addWidget(t)
+        d = QLabel("Import data from a legacy Excel Master Database into SQLite.")
+        d.setStyleSheet(Theme.label_muted())
+        d.setWordWrap(True)
+        vl.addWidget(d)
+        bl = QHBoxLayout()
+        ib = QPushButton("⬇️ Import from Excel")
+        ib.setStyleSheet(Theme.btn_warning())
+        ib.clicked.connect(self._import_excel)
+        bl.addWidget(ib)
+        bl.addStretch()
+        vl.addLayout(bl)
+        parent.addWidget(frame)
+
     def _create_backup(self):
         try:
-            from src.core.safety import BackupService
-            BackupService.create_backup(self.db.db_path)
-            QMessageBox.information(self, "Success", "Backup Created Successfully in /backups directory!")
+            from src.core.safety import SafetyManager
+            path = SafetyManager.create_backup()
+            if path:
+                QMessageBox.information(self, "Backup Created ✓", f"Backup saved to:\n{path}")
+            else:
+                QMessageBox.warning(self, "Backup Failed", "Could not create backup.")
         except Exception as e:
-            QMessageBox.critical(self, "Backup Error", str(e))
+            QMessageBox.critical(self, "Error", str(e))
+
+    def _restore_backup(self):
+        from src.core.config import BACKUP_DIR
+        path, _ = QFileDialog.getOpenFileName(self, "Select Backup File", BACKUP_DIR, "Database Files (*.db);;All Files (*)")
+        if not path: return
+        dlg = ConfirmDialog("Restore Backup", "This will replace your current database. Are you sure?",
+                            confirm_text="Restore", confirm_color="danger", parent=self)
+        if dlg.exec():
+            try:
+                from src.core.safety import SafetyManager
+                SafetyManager.rollback(path)
+                QMessageBox.information(self, "Restored ✓", "Database restored. Restart the application.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+
+    def _export_excel(self):
+        try:
+            from src.utils.export_import import DataExporter
+            path = DataExporter.export_excel_report(self.db)
+            QMessageBox.information(self, "Export Complete ✓", f"Report saved to:\n{path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", str(e))
+
+    def _export_csv(self):
+        from PySide6.QtWidgets import QInputDialog
+        tables = ["products", "sales", "purchases", "inventory"]
+        choice, ok = QInputDialog.getItem(self, "Export CSV", "Select data to export:", tables, 0, False)
+        if ok and choice:
+            try:
+                from src.utils.export_import import DataExporter
+                path = DataExporter.export_csv(self.db, choice)
+                QMessageBox.information(self, "Export Complete ✓", f"CSV saved to:\n{path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", str(e))
+
+    def _import_excel(self):
+        from src.core.config import BASE_DIR
+        path, _ = QFileDialog.getOpenFileName(self, "Select Excel Database", BASE_DIR, "Excel Files (*.xlsx)")
+        if not path: return
+        dlg = ConfirmDialog("Import Excel", "This will replace products, sales, and purchases. Continue?",
+                            confirm_text="Import", confirm_color="danger", parent=self)
+        if dlg.exec():
+            try:
+                from src.repositories.sync_manager import SyncManager
+                sm = SyncManager(self.db)
+                sm.excel_path = path
+                ok, msg = sm.sync_all_from_excel()
+                if ok:
+                    QMessageBox.information(self, "Import Complete ✓", msg)
+                else:
+                    QMessageBox.warning(self, "Import Issue", msg)
+            except Exception as e:
+                QMessageBox.critical(self, "Import Error", str(e))
+
+    def refresh(self): pass

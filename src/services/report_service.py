@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import pandas as pd
 from datetime import datetime, timedelta
 from src.utils.export_import import DataExporter
@@ -53,13 +53,13 @@ class ReportService:
             
         df = self.db.execute_query(query, params)
         if df.empty or df.iloc[0]['total_revenue'] is None:
-            return {"revenue": 0, "profit": 0, "units": 0, "transactions": 0}
+            return {"revenue": 0, "profit": 0, "units": 0, "sales_count": 0}
         
         return {
             "revenue": float(df.iloc[0]['total_revenue']),
             "profit": float(df.iloc[0]['total_profit']),
             "units": int(df.iloc[0]['total_units']),
-            "transactions": int(df.iloc[0]['total_transactions'])
+            "sales_count": int(df.iloc[0]['total_transactions'])
         }
 
     def get_top_selling_products(self, limit: int = 5) -> pd.DataFrame:

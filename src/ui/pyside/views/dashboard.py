@@ -1,5 +1,16 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout
+"""
+Dashboard View — Executive overview of business metrics.
+Auto-refreshes on navigation.
+"""
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QTableWidget,
+    QTableWidgetItem, QHeaderView, QSizePolicy
+)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
+from src.ui.pyside.theme import Theme
+from src.ui.pyside.widgets import KPICard
+
 
 class PySideDashboard(QWidget):
     def __init__(self, inventory_service, reporting_service):
@@ -7,108 +18,129 @@ class PySideDashboard(QWidget):
         self.inventory_service = inventory_service
         self.reporting_service = reporting_service
         
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(20)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(16)
         
-        self._build_kpi_row()
-        self._build_charts_row()
-        
-    def _build_kpi_row(self):
+        self._build_kpi_row(main_layout)
+        self._build_bottom_section(main_layout)
+    
+    def _build_kpi_row(self, parent_layout):
         kpi_layout = QHBoxLayout()
-        kpi_layout.setSpacing(15)
+        kpi_layout.setSpacing(12)
         
-        summary = self.reporting_service.get_sales_summary(days=None)
-        rev = summary.get('revenue', 0)
-        prof = summary.get('profit', 0)
+        self.kpi_revenue = KPICard("Revenue", "৳ 0", "📈", Theme.ACCENT)
+        self.kpi_profit = KPICard("Net Profit", "৳ 0", "💰", Theme.SUCCESS)
+        self.kpi_products = KPICard("Active Products", "0", "📦", Theme.PURPLE)
+        self.kpi_alerts = KPICard("Low Stock Alerts", "0", "⚠️", Theme.SUCCESS)
         
-        stock_df = self.inventory_service.get_stock_status()
-        items = len(stock_df)
+        kpi_layout.addWidget(self.kpi_revenue)
+        kpi_layout.addWidget(self.kpi_profit)
+        kpi_layout.addWidget(self.kpi_products)
+        kpi_layout.addWidget(self.kpi_alerts)
         
-        low_stock = self.reporting_service.get_reorder_alerts()
-        low_count = len(low_stock)
-        
-        kpi_layout.addWidget(self._create_kpi_card("Total Revenue", f"৳ {rev:,.0f}", "📈", "#3182CE"))
-        kpi_layout.addWidget(self._create_kpi_card("Net Profit", f"৳ {prof:,.0f}", "💰", "#38A169"))
-        kpi_layout.addWidget(self._create_kpi_card("Active Products", f"{items}", "📦", "#805AD5"))
-        kpi_layout.addWidget(self._create_kpi_card("Alerts", f"{low_count}", "⚠️", "#E53E3E" if low_count > 0 else "#38A169"))
-        
-        self.layout.addLayout(kpi_layout)
-        
-    def _create_kpi_card(self, title, value, icon, color):
-        card = QFrame()
-        card.setStyleSheet(f"background-color: #2D3748; border-radius: 12px; border-top: 4px solid {color};")
-        card.setFixedHeight(120)
-        
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 15, 20, 15)
-        
-        top_layout = QHBoxLayout()
-        icon_lbl = QLabel(icon)
-        icon_lbl.setStyleSheet("font-size: 24px; background: transparent; border: none;")
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet("font-size: 14px; color: #A0AEC0; background: transparent; border: none;")
-        
-        top_layout.addWidget(icon_lbl)
-        top_layout.addWidget(title_lbl)
-        top_layout.addStretch()
-        
-        val_lbl = QLabel(value)
-        val_lbl.setStyleSheet(f"font-size: 26px; font-weight: bold; color: {color}; background: transparent; border: none;")
-        
-        layout.addLayout(top_layout)
-        layout.addWidget(val_lbl)
-        
-        return card
-        
-    def _build_charts_row(self):
+        parent_layout.addLayout(kpi_layout)
+    
+    def _build_bottom_section(self, parent_layout):
         bottom_layout = QHBoxLayout()
-        bottom_layout.setSpacing(20)
+        bottom_layout.setSpacing(16)
         
         # Recent Activity
         recent_frame = QFrame()
-        recent_frame.setStyleSheet("background-color: #2D3748; border-radius: 12px;")
+        recent_frame.setStyleSheet(Theme.card_style())
         recent_layout = QVBoxLayout(recent_frame)
+        recent_layout.setContentsMargins(16, 16, 16, 16)
+        recent_layout.setSpacing(10)
         
-        title = QLabel("Recent Activity")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F7FAFC;")
+        title = QLabel("🕐  Recent Activity")
+        title.setStyleSheet(Theme.label_title())
         recent_layout.addWidget(title)
         
-        recent_df = self.reporting_service.get_recent_activity(limit=8)
-        if recent_df.empty:
-            empty = QLabel("No recent transactions")
-            empty.setStyleSheet("color: #A0AEC0;")
-            recent_layout.addWidget(empty)
-        else:
-            for _, row in recent_df.iterrows():
-                item = QLabel(f"{'🧾' if row['type'] == 'SALE' else '🚚'} {row['name']} - ৳ {row['amt']:,.0f}")
-                item.setStyleSheet(f"color: {'#38A169' if row['type'] == 'SALE' else '#DD6B20'}; font-size: 13px;")
-                recent_layout.addWidget(item)
-                
-        recent_layout.addStretch()
+        self.activity_table = QTableWidget(0, 4)
+        self.activity_table.setHorizontalHeaderLabels(["Type", "Product", "Amount", "Date"])
+        self.activity_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.activity_table.setStyleSheet(Theme.table_style())
+        self.activity_table.verticalHeader().setVisible(False)
+        self.activity_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.activity_table.setShowGrid(False)
+        recent_layout.addWidget(self.activity_table, stretch=1)
+        
         bottom_layout.addWidget(recent_frame, stretch=1)
         
-        # Low stock
+        # Low Stock Alerts
         alert_frame = QFrame()
-        alert_frame.setStyleSheet("background-color: #2D3748; border-radius: 12px;")
+        alert_frame.setStyleSheet(Theme.card_style())
         alert_layout = QVBoxLayout(alert_frame)
+        alert_layout.setContentsMargins(16, 16, 16, 16)
+        alert_layout.setSpacing(10)
         
-        alert_title = QLabel("Low Stock Alerts")
-        alert_title.setStyleSheet("font-size: 16px; font-weight: bold; color: #F7FAFC;")
+        alert_title = QLabel("⚠️  Low Stock Alerts")
+        alert_title.setStyleSheet(Theme.label_title())
         alert_layout.addWidget(alert_title)
         
-        low_stock = self.reporting_service.get_reorder_alerts()
-        if low_stock.empty:
-            empty = QLabel("All stock healthy")
-            empty.setStyleSheet("color: #38A169;")
-            alert_layout.addWidget(empty)
-        else:
-            for _, row in low_stock.head(8).iterrows():
-                item = QLabel(f"⚠️ {row['name']} - {int(row['current_stock'])} left")
-                item.setStyleSheet("color: #E53E3E; font-size: 13px;")
-                alert_layout.addWidget(item)
-                
-        alert_layout.addStretch()
+        self.alert_table = QTableWidget(0, 2)
+        self.alert_table.setHorizontalHeaderLabels(["Product", "Stock"])
+        self.alert_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.alert_table.setStyleSheet(Theme.table_style())
+        self.alert_table.verticalHeader().setVisible(False)
+        self.alert_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.alert_table.setShowGrid(False)
+        alert_layout.addWidget(self.alert_table, stretch=1)
+        
         bottom_layout.addWidget(alert_frame, stretch=1)
         
-        self.layout.addLayout(bottom_layout, stretch=1)
+        parent_layout.addLayout(bottom_layout, stretch=1)
+    
+    def refresh(self):
+        """Reload all dashboard data."""
+        try:
+            # KPIs
+            summary = self.reporting_service.get_sales_summary(days=None)
+            self.kpi_revenue.set_value(f"৳ {summary.get('revenue', 0):,.0f}")
+            self.kpi_profit.set_value(f"৳ {summary.get('profit', 0):,.0f}")
+            
+            stock_df = self.inventory_service.get_stock_status()
+            self.kpi_products.set_value(str(len(stock_df)))
+            
+            low_stock = self.reporting_service.get_reorder_alerts()
+            low_count = len(low_stock)
+            self.kpi_alerts.set_value(str(low_count))
+            alert_color = Theme.DANGER if low_count > 0 else Theme.SUCCESS
+            self.kpi_alerts.set_color(alert_color)
+            
+            # Recent Activity
+            self.activity_table.setRowCount(0)
+            recent_df = self.reporting_service.get_recent_activity(limit=10)
+            if not recent_df.empty:
+                for _, row in recent_df.iterrows():
+                    r = self.activity_table.rowCount()
+                    self.activity_table.insertRow(r)
+                    
+                    type_item = QTableWidgetItem("🧾 Sale" if row['type'] == 'SALE' else "🚚 Purchase")
+                    type_item.setForeground(QColor(Theme.SUCCESS if row['type'] == 'SALE' else Theme.ORANGE))
+                    self.activity_table.setItem(r, 0, type_item)
+                    self.activity_table.setItem(r, 1, QTableWidgetItem(str(row['name'])))
+                    
+                    amt_item = QTableWidgetItem(f"৳ {row['amt']:,.0f}")
+                    amt_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    self.activity_table.setItem(r, 2, amt_item)
+                    self.activity_table.setItem(r, 3, QTableWidgetItem(str(row['date'])[:10]))
+            
+            # Alerts
+            self.alert_table.setRowCount(0)
+            if not low_stock.empty:
+                for _, row in low_stock.head(10).iterrows():
+                    r = self.alert_table.rowCount()
+                    self.alert_table.insertRow(r)
+                    self.alert_table.setItem(r, 0, QTableWidgetItem(str(row['name'])))
+                    
+                    stock_item = QTableWidgetItem(str(int(row['current_stock'])))
+                    stock_item.setForeground(QColor(Theme.DANGER))
+                    stock_item.setTextAlignment(Qt.AlignCenter)
+                    self.alert_table.setItem(r, 1, stock_item)
+        except Exception as e:
+            print(f"Dashboard refresh error: {e}")
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh()

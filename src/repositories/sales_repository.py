@@ -21,22 +21,18 @@ class SalesRepository(BaseRepository):
 
     def create(self, data: dict) -> bool:
         query = """INSERT INTO sales 
-            (sales_id, date, product_id, customer, qty, sell_price, discount, revenue, cogs, profit) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            (sales_id, date, product_id, customer, qty, sell_price, discount, revenue, cogs, profit, payment_method) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
         params = (
             data['sales_id'], data['date'], data['product_id'], data.get('customer', 'Walk-in'),
             data['qty'], data['sell_price'], data.get('discount', 0), 
-            data['revenue'], data['cogs'], data['profit']
+            data['revenue'], data['cogs'], data['profit'],
+            data.get('payment_method', 'Cash')
         )
         self.db.execute_write(query, params)
-        
-        if self.sync_manager:
-            self.sync_manager.sync_sale_to_excel(data)
-            
         return True
 
     def update(self, sale_id: str, data: dict) -> bool:
-        # Sales are typically immutable, but update method is here for completeness
         query = "UPDATE sales SET customer=? WHERE sales_id=?"
         self.db.execute_write(query, (data['customer'], sale_id))
         return True
