@@ -388,7 +388,7 @@ class PySideDashboard(QWidget):
         if not alerts:
             placeholder = QStandardItem("All stock levels are healthy")
             placeholder.setSelectable(False)
-            self.alert_model.appendRow([placeholder("")])
+            self.alert_model.appendRow([placeholder])
             return
 
         for a in alerts:
@@ -405,7 +405,7 @@ class PySideDashboard(QWidget):
         if not recent:
             placeholder = QStandardItem("No recent activity")
             placeholder.setSelectable(False)
-            self.recent_model.appendRow([placeholder("")("")("")])
+            self.recent_model.appendRow([placeholder])
             self._finalise_ui_updates()
             return
 

@@ -367,8 +367,8 @@ class PySidePurchases(QWidget):
             placeholder = QStandardItem("No purchase records found")
             placeholder.setSelectable(False)
             self.history_model.appendRow([
-                placeholder("")(""),
-                QStandardItem("")("")
+                placeholder,
+                QStandardItem("")
             ])
 
         self.stack.setCurrentIndex(0)  # show history panel

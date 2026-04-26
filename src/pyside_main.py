@@ -20,12 +20,14 @@ from src.repositories.product_repository import ProductRepository
 from src.repositories.sales_repository import SalesRepository
 from src.repositories.purchase_repository import PurchaseRepository
 from src.repositories.audit_repository import AuditRepository
+from src.repositories.return_repository import ReturnRepository
 from src.services.inventory_service import InventoryService
 from src.services.sales_service import SalesService
 from src.services.purchase_service import PurchaseService
 from src.services.product_service import ProductService
 from src.services.report_service import ReportService
 from src.services.pdf_service import PDFService
+from src.services.return_service import ReturnService
 from src.ui.pyside.app import ERPAppWindow
 
 
@@ -47,6 +49,7 @@ def main():
     sales_repo = SalesRepository(db)
     purchase_repo = PurchaseRepository(db)
     audit_repo = AuditRepository(db)
+    return_repo = ReturnRepository(db)
 
     # ── Services ──
     pdf_service = PDFService()
@@ -55,6 +58,7 @@ def main():
     sales_service = SalesService(sales_repo, inventory_service, pdf_service)
     purchase_service = PurchaseService(purchase_repo, product_service)
     report_service = ReportService(db, pdf_service)
+    return_service = ReturnService(return_repo, sales_repo, inventory_service)
 
     services = {
         'inventory': inventory_service,
@@ -62,6 +66,7 @@ def main():
         'purchase': purchase_service,
         'product': product_service,
         'report': report_service,
+        'return': return_service,
         'db': db,
     }
 

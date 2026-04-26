@@ -92,12 +92,75 @@ class DatabaseEngine:
             )
         ''')
 
+        # Product Returns Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS returns (
+                return_id TEXT PRIMARY KEY,
+                date TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                original_sale_id TEXT,
+                qty INTEGER NOT NULL,
+                refund_amount REAL NOT NULL,
+                return_reason TEXT DEFAULT '',
+                return_type TEXT DEFAULT 'full',
+                refund_method TEXT DEFAULT 'cash',
+                status TEXT DEFAULT 'completed',
+                processed_by TEXT DEFAULT 'SYSTEM',
+                FOREIGN KEY (product_id) REFERENCES products (product_id)
+            )
+        ''')
+
+        # Stock Movement History Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS stock_movements (
+                movement_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT DEFAULT CURRENT_TIMESTAMP,
+                product_id TEXT NOT NULL,
+                movement_type TEXT NOT NULL,
+                qty INTEGER NOT NULL,
+                reference_id TEXT,
+                notes TEXT DEFAULT '',
+                FOREIGN KEY (product_id) REFERENCES products (product_id)
+            )
+        ''')
+
+        # Customers Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS customers (
+                customer_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                phone TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                address TEXT DEFAULT '',
+                loyalty_points INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'Active'
+            )
+        ''')
+
+        # Suppliers Table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS suppliers (
+                supplier_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                phone TEXT DEFAULT '',
+                email TEXT DEFAULT '',
+                address TEXT DEFAULT '',
+                contact_person TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                status TEXT DEFAULT 'Active'
+            )
+        ''')
+
         # Indexes for performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_sales_product ON sales(product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_purchases_product ON purchases(product_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_purchases_date ON purchases(date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku_code)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_returns_product ON returns(product_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_returns_date ON returns(date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_stock_movements_product ON stock_movements(product_id)')
 
         # Seed default admin if users table is empty
         cursor.execute("SELECT COUNT(*) FROM users")

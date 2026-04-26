@@ -125,6 +125,7 @@ class ERPAppWindow(QMainWindow):
             ("Inventory", qta_icon('fa5s.clipboard-list', color=Theme.TEXT_MUTED), ""),
             ("Sales", qta_icon('fa5s.shopping-cart', color=Theme.TEXT_MUTED), "F2"),
             ("Purchases", qta_icon('fa5s.truck', color=Theme.TEXT_MUTED), "F3"),
+            ("Returns", qta_icon('fa5s.undo-alt', color=Theme.TEXT_MUTED), "F4"),
             ("Transactions", qta_icon('fa5s.list-alt', color=Theme.TEXT_MUTED), ""),
             ("Analytics", qta_icon('fa5s.chart-line', color=Theme.TEXT_MUTED), ""),
             ("Settings", qta_icon('fa5s.cog', color=Theme.TEXT_MUTED), ""),
@@ -199,6 +200,7 @@ class ERPAppWindow(QMainWindow):
         from src.ui.pyside.views.inventory import PySideInventory
         from src.ui.pyside.views.sales import PySideSales
         from src.ui.pyside.views.purchases import PySidePurchases
+        from src.ui.pyside.views.returns import PySideReturns
         from src.ui.pyside.views.transactions import PySideTransactions
         from src.ui.pyside.views.analytics import PySideAnalytics
         from src.ui.pyside.views.settings import PySideSettings
@@ -225,6 +227,15 @@ class ERPAppWindow(QMainWindow):
         purch = PySidePurchases(self.services['purchase'], self.services['product'], self.services['report'])
         self.stack.addWidget(purch)
         self.views["Purchases"] = (self.stack.count() - 1, purch)
+
+        returns = PySideReturns(
+            self.services['return'], 
+            self.services['sales'],
+            self.services['inventory']
+        )
+        returns.return_processed.connect(lambda: self._refresh_view("Dashboard"))
+        self.stack.addWidget(returns)
+        self.views["Returns"] = (self.stack.count() - 1, returns)
 
         trans = PySideTransactions(self.services['report'])
         self.stack.addWidget(trans)
@@ -270,6 +281,7 @@ class ERPAppWindow(QMainWindow):
         QShortcut(QKeySequence("F1"), self, lambda: self._navigate_to("Products"))
         QShortcut(QKeySequence("F2"), self, lambda: self._navigate_to("Sales"))
         QShortcut(QKeySequence("F3"), self, lambda: self._navigate_to("Purchases"))
+        QShortcut(QKeySequence("F4"), self, lambda: self._navigate_to("Returns"))
         QShortcut(QKeySequence("Ctrl+F"), self, self._focus_search)
 
     def _focus_search(self):
